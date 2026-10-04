@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.exe
+*.lib
+*.exp
+*.obj
+*.cubin
+tmpxft_*

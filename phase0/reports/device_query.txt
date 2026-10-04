@@ -1,0 +1,32 @@
+name                     NVIDIA T600 Laptop GPU
+compute capability       7.5
+total global mem         4.00 GiB
+--------------------------------------------------------------
+SM count (SM 数量)       14
+warp size (warp 宽度)    32 threads
+threads per SM           1024
+warps per SM (=T/SM/32)  32
+threads per block (max)  1024
+registers per SM         65536
+registers per thread mx  64
+shared mem per SM        64 KB
+shared mem per block     48 KB (opt-in max 64 KB)
+--------------------------------------------------------------
+L2 cache                 1024 KB
+memory bus width         128 bits
+memory clock             6001 MHz
+SM clock (max)           1650 MHz
+concurrent kernels       1
+async engines            2
+--------------------------------------------------------------
+DERIVED (推出来的，不是 API 给的)
+  FP32 cores             896   (= 14 SM x 64)
+  FP32 peak @max clock   2.96 TFLOP/s  (= cores x 2 x clock)
+  memory peak            192.0 GB/s  (= bus/8 x memclk x 2)
+  machine balance        15.4 FLOP/byte
+--------------------------------------------------------------
+
+per-SM resource budget (this is what decides occupancy)
+  threads    1024  -> 32 warps
+  registers 65536  -> with R regs/thread, at most 2048/R warps
+  shared       64 KB -> with S KB/block, at most [SM shared]/S blocks

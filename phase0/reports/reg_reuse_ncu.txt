@@ -1,0 +1,108 @@
+
+================ kernel=add_reread_vol  case=0 ================
+==PROF== Connected to process 28800 (phase0\cuda\reg_reuse.exe)
+==PROF== Profiling "add_reread_vol": 0%....50%....100% - 3 passes
+
+volatile vs plain: does the compiler eat the memory traffic?
+------------------------------------------------------------
+  case      iters     vol ms   plain ms   speedup     vol GB/s   plain GB/s
+  64KB       2048     17.703      0.103   172.15x         15.2       2610.4
+
+obligatory DRAM traffic (one pass each of a, b, c)
+--------------------------------------------------
+  64KB          0.20 MB
+==PROF== Disconnected from process 28800
+[28800] reg_reuse.exe@127.0.0.1
+  add_reread_vol(const volatile float *, const volatile float *, float *, int, int) (64, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    Section: Command line profiler metrics
+    ---------------------------------------------- ----------- ------------
+    Metric Name                                    Metric Unit Metric Value
+    ---------------------------------------------- ----------- ------------
+    dram__bytes_read.sum                                 Kbyte       133.76
+    dram__bytes_write.sum                                Kbyte        49.95
+    gpu__time_duration.sum                                  ms         1.19
+    l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum      sector    8,388,608
+    lts__t_sector_hit_rate.pct                               %        99.95
+    ---------------------------------------------- ----------- ------------
+
+
+================ kernel=add_reread_vol  case=3 ================
+==PROF== Connected to process 26464 (phase0\cuda\reg_reuse.exe)
+==PROF== Profiling "add_reread_vol": 0%....50%....100% - 3 passes
+
+volatile vs plain: does the compiler eat the memory traffic?
+------------------------------------------------------------
+  case      iters     vol ms   plain ms   speedup     vol GB/s   plain GB/s
+  64MB          2     18.140      1.129    16.07x         14.8        237.8
+
+obligatory DRAM traffic (one pass each of a, b, c)
+--------------------------------------------------
+  64MB        201.33 MB
+==PROF== Disconnected from process 26464
+[26464] reg_reuse.exe@127.0.0.1
+  add_reread_vol(const volatile float *, const volatile float *, float *, int, int) (65536, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    Section: Command line profiler metrics
+    ---------------------------------------------- ----------- ------------
+    Metric Name                                    Metric Unit Metric Value
+    ---------------------------------------------- ----------- ------------
+    dram__bytes_read.sum                                 Mbyte       134.23
+    dram__bytes_write.sum                                Mbyte        67.22
+    gpu__time_duration.sum                                  ms         1.29
+    l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum      sector    8,388,608
+    lts__t_sector_hit_rate.pct                               %        60.00
+    ---------------------------------------------- ----------- ------------
+
+
+================ kernel=add_reread_plain  case=0 ================
+==PROF== Connected to process 28376 (phase0\cuda\reg_reuse.exe)
+==PROF== Profiling "add_reread_plain": 0%....50%....100% - 3 passes
+
+volatile vs plain: does the compiler eat the memory traffic?
+------------------------------------------------------------
+  case      iters     vol ms   plain ms   speedup     vol GB/s   plain GB/s
+  64KB       2048      1.160     15.711     0.07x        231.4         17.1
+
+obligatory DRAM traffic (one pass each of a, b, c)
+--------------------------------------------------
+  64KB          0.20 MB
+==PROF== Disconnected from process 28376
+[28376] reg_reuse.exe@127.0.0.1
+  add_reread_plain(const float *, const float *, float *, int, int) (64, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    Section: Command line profiler metrics
+    ---------------------------------------------- ----------- ------------
+    Metric Name                                    Metric Unit Metric Value
+    ---------------------------------------------- ----------- ------------
+    dram__bytes_read.sum                                 Kbyte       133.76
+    dram__bytes_write.sum                                Kbyte         9.86
+    gpu__time_duration.sum                                  us       100.16
+    l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum      sector        4,096
+    lts__t_sector_hit_rate.pct                               %        41.09
+    ---------------------------------------------- ----------- ------------
+
+
+================ kernel=add_reread_plain  case=3 ================
+==PROF== Connected to process 25452 (phase0\cuda\reg_reuse.exe)
+==PROF== Profiling "add_reread_plain": 0%....50%....100% - 3 passes
+
+volatile vs plain: does the compiler eat the memory traffic?
+------------------------------------------------------------
+  case      iters     vol ms   plain ms   speedup     vol GB/s   plain GB/s
+  64MB          2      1.295     17.571     0.07x        207.2         15.3
+
+obligatory DRAM traffic (one pass each of a, b, c)
+--------------------------------------------------
+  64MB        201.33 MB
+==PROF== Disconnected from process 25452
+[25452] reg_reuse.exe@127.0.0.1
+  add_reread_plain(const float *, const float *, float *, int, int) (65536, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    Section: Command line profiler metrics
+    ---------------------------------------------- ----------- ------------
+    Metric Name                                    Metric Unit Metric Value
+    ---------------------------------------------- ----------- ------------
+    dram__bytes_read.sum                                 Mbyte       134.22
+    dram__bytes_write.sum                                Mbyte        67.08
+    gpu__time_duration.sum                                  ms         1.13
+    l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum      sector    4,194,304
+    lts__t_sector_hit_rate.pct                               %        33.35
+    ---------------------------------------------- ----------- ------------
+

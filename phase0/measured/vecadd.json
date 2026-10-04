@@ -1,0 +1,8 @@
+{
+  "points": [
+    {"name": "vecadd_naive", "ms": 4.539194, "gflops": 0.0000, "gbps": 177.41, "ai": 0.0833,
+     "dram_bytes": 805306368, "l2_bytes": 805306368},
+    {"name": "vecadd_float4_b256", "ms": 4.479660, "gflops": 0.0000, "gbps": 179.77, "ai": 0.0833,
+     "dram_bytes": 805306368, "l2_bytes": 805909152}
+  ]
+}

@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GEMM 四个版本 · 一点点变快的全过程</title>
+<style>
+:root{
+  --bg:#0d1218; --card:#151d27; --card2:#1b2431; --line:#2a3543;
+  --fg:#dce4ef; --dim:#8f9dae; --faint:#5f6d7f;
+  --a:#5aa9e6; --b:#f2994a; --c:#4fd1a5; --p:#c792ea; --warn:#f5c451; --bad:#ec6a6a;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --sans:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+  font-size:17px;line-height:1.85;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1020px;margin:0 auto;padding:0 26px 110px}
+
+/* ---------- hero ---------- */
+header{padding:70px 0 40px;text-align:center}
+h1{font-size:33px;margin:0 0 16px;font-weight:680;letter-spacing:-.5px;line-height:1.35}
+.thesis{font-size:18.5px;color:var(--dim);margin:0 auto;max-width:680px;line-height:1.8}
+.thesis b{color:var(--fg)}
+.thesis .hl{color:var(--c);font-weight:700}
+
+/* ---------- 一句话导航 ---------- */
+.map{display:flex;gap:0;margin:44px 0 0;border-radius:12px;overflow:hidden;border:1px solid var(--line)}
+.map div{flex:1;padding:14px 10px;text-align:center;background:var(--card);border-right:1px solid var(--line)}
+.map div:last-child{border-right:0}
+.map .t{font-family:var(--mono);font-size:15px;font-weight:700}
+.map .s{font-size:12.5px;color:var(--faint);margin-top:2px}
+
+/* ---------- version card ---------- */
+.v{margin:52px 0 0;border-radius:16px;border:1px solid var(--line);background:var(--card);overflow:hidden}
+.v.next{border-style:dashed;border-color:#4a4230;background:#171509}
+.vhead{padding:24px 30px 20px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  border-bottom:1px solid var(--line)}
+.vnum{width:52px;height:52px;border-radius:13px;display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:22px;font-weight:800;color:#0d1218;flex-shrink:0}
+.v0 .vnum{background:var(--a)} .v1 .vnum{background:var(--c)}
+.v2 .vnum{background:var(--b)} .v3 .vnum{background:var(--p)} .v4 .vnum{background:var(--warn)}
+.vttl{flex:1;min-width:220px}
+.vttl h2{margin:0;font-size:24px;font-weight:680;letter-spacing:-.3px;font-family:var(--mono)}
+.vttl .oneline{color:var(--dim);font-size:15.5px;margin-top:2px}
+.vbody{padding:6px 30px 30px}
+
+/* ---------- 只改了一件事 ---------- */
+.onething{display:flex;align-items:flex-start;gap:13px;background:var(--card2);
+  border-radius:11px;padding:15px 19px;margin:24px 0;border:1px solid var(--line)}
+.onething .k{font-family:var(--mono);font-size:11.5px;letter-spacing:1.2px;color:var(--faint);
+  text-transform:uppercase;white-space:nowrap;padding-top:3px}
+.onething .v{font-size:16.5px}
+.onething .v b{color:var(--warn)}
+
+/* ---------- 账单 ---------- */
+.bill{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:12px;margin:22px 0}
+.stat{background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:14px 16px}
+.stat .k{font-size:12px;color:var(--faint);letter-spacing:.4px}
+.stat .v{font-family:var(--mono);font-size:22px;font-weight:750;margin-top:3px;letter-spacing:-.6px}
+.stat .d{font-size:12.5px;color:var(--dim);margin-top:1px}
+
+/* ---------- 通用 ---------- */
+h3{font-size:16px;color:var(--faint);letter-spacing:1.1px;text-transform:uppercase;
+  font-weight:640;margin:34px 0 12px}
+p{margin:13px 0}
+.note{border-radius:11px;padding:15px 20px;margin:22px 0;font-size:16px;border-left:3px solid var(--a);background:#111d29}
+.note.g{border-left-color:var(--c);background:#0e211c}
+.note.w{border-left-color:var(--warn);background:#211c0f}
+.note.r{border-left-color:var(--bad);background:#231315}
+figure{margin:26px 0 8px;background:#0a0f14;border:1px solid var(--line);border-radius:12px;
+  padding:22px 18px 16px;overflow-x:auto}
+figure svg{display:block;margin:0 auto;max-width:100%;height:auto}
+figcaption{font-size:14px;color:var(--dim);text-align:center;margin-top:14px;padding-top:13px;
+  border-top:1px solid var(--line);line-height:1.7}
+figcaption b{color:var(--fg)}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:15px}
+th,td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--line)}
+th{font-size:12.5px;letter-spacing:.7px;text-transform:uppercase;color:var(--faint);font-weight:640}
+td.n,th.n{text-align:right;font-family:var(--mono);font-size:14px}
+tr.hi td{background:#102a24}
+code{font-family:var(--mono);font-size:.87em;background:var(--card2);padding:2px 6px;
+  border-radius:4px;color:#bfe0ff;border:1px solid #253040}
+pre{background:#0a0f14;border:1px solid var(--line);border-radius:10px;padding:16px 18px;
+  overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.7;color:#c3cfe0}
+pre .cm{color:#5f7183} pre .kw{color:#c792ea} pre .hl{color:#7ee0b4;font-weight:700}
+.legend{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 24px;margin:26px 0}
+.legend td:first-child{white-space:nowrap;font-family:var(--mono);font-size:14px;color:var(--a)}
+.foot{color:var(--faint);font-size:14px;margin-top:70px;padding-top:26px;border-top:1px solid var(--line);line-height:1.9}
+@media(max-width:640px){.vhead{padding:20px}.vbody{padding:4px 20px 24px}.map{flex-direction:column}
+  .map div{border-right:0;border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>GEMM 四个版本<br>是怎么一点点变快的</h1>
+  <p class="thesis">
+    四个版本算的是<b>同一件事</b>：<code style="font-size:16px">C = A × B</code>。<br>
+    差别只有一句：<span class="hl">同一份数据，被搬了几遍。</span>
+  </p>
+  <div class="map">
+    <div><div class="t" style="color:var(--a)">v0 naive</div><div class="s">各搬各的</div></div>
+    <div><div class="t" style="color:var(--c)">v1 tiled</div><div class="s">换位置 · 加货架</div></div>
+    <div><div class="t" style="color:var(--b)">v2 reg</div><div class="s">换次数 · 一次多拿</div></div>
+    <div><div class="t" style="color:var(--p)">v3 reg2</div><div class="s">换方式 · 排好队形</div></div>
+  </div>
+</header>
+
+<!-- ══════════════ 引子 ══════════════ -->
+<h3>先看一个画面</h3>
+
+<p>算 C 的一个格子，要把它<b>左边那一整行</b>和<b>上面那一整列</b>对齐了相乘再相加。
+这没问题。问题出在算<b>第二个</b>格子的时候——</p>
+
+<figure>
+<svg viewBox="0 0 880 330" xmlns="http://www.w3.org/2000/svg" font-family="var(--mono),monospace">
+  <!-- left panel -->
+  <text x="150" y="26" fill="#8f9dae" font-size="14" text-anchor="middle">算 C 的第 0 列</text>
+  <g>
+    <rect x="60" y="44" width="180" height="34" rx="6" fill="#5aa9e6" opacity=".85"/>
+    <rect x="60" y="82" width="180" height="34" rx="6" fill="#5aa9e6" opacity=".68"/>
+    <rect x="60" y="120" width="180" height="34" rx="6" fill="#5aa9e6" opacity=".52"/>
+    <rect x="60" y="158" width="180" height="34" rx="6" fill="#5aa9e6" opacity=".36"/>
+    <text x="150" y="212" fill="#5f6d7f" font-size="15" text-anchor="middle">···</text>
+    <rect x="60" y="232" width="180" height="34" rx="6" fill="#5aa9e6" opacity=".22"/>
+    <g fill="#0d1218" font-size="13" text-anchor="middle" font-weight="700">
+      <text x="150" y="66">A 第 0 行</text><text x="150" y="104">A 第 1 行</text>
+      <text x="150" y="142">A 第 2 行</text><text x="150" y="180">A 第 3 行</text>
+      <text x="150" y="254">A 第 31 行</text>
+    </g>
+  </g>
+  <g fill="#4fd1a5" font-size="14" text-anchor="middle">
+    <rect x="300" y="70" width="76" height="42" rx="6" fill="#122a24" stroke="#2f6b57"/>
+    <text x="338" y="97">C00</text>
+  </g>
+  <path d="M246,61 C275,61 275,85 296,89" fill="none" stroke="#4fd1a5" stroke-width="1.4"/>
+  <path d="M246,99 C275,99 275,92 296,92" fill="none" stroke="#4fd1a5" stroke-width="1.4"/>
+  <path d="M246,137 C275,137 275,99 296,95" fill="none" stroke="#4fd1a5" stroke-width="1.4"/>
+  <text x="272" y="140" fill="#2f6b57" font-size="16">⤴</text>
+  <text x="338" y="140" fill="#5f6d7f" font-size="12.5" text-anchor="middle">这 32 行全都要</text>
+
+  <!-- divider -->
+  <line x1="430" y1="20" x2="430" y2="300" stroke="#2a3543" stroke-dasharray="6 6"/>
+
+  <!-- right panel -->
+  <text x="660" y="26" fill="#8f9dae" font-size="14" text-anchor="middle">算 C 的第 1 列</text>
+  <g>
+    <rect x="480" y="44" width="180" height="34" rx="6" fill="#5aa9e6" opacity=".85"/>
+    <rect x="480" y="82" width="180" height="34" rx="6" fill="#5aa9e6" opacity=".68"/>
+    <rect x="480" y="120" width="180" height="34" rx="6" fill="#5aa9e6" opacity=".52"/>
+    <rect x="480" y="158" width="180" height="34" rx="6" fill="#5aa9e6" opacity=".36"/>
+    <text x="570" y="212" fill="#5f6d7f" font-size="15" text-anchor="middle">···</text>
+    <rect x="480" y="232" width="180" height="34" rx="6" fill="#5aa9e6" opacity=".22"/>
+    <g fill="#0d1218" font-size="13" text-anchor="middle" font-weight="700">
+      <text x="570" y="66">A 第 0 行</text><text x="570" y="104">A 第 1 行</text>
+      <text x="570" y="142">A 第 2 行</text><text x="570" y="180">A 第 3 行</text>
+      <text x="570" y="254">A 第 31 行</text>
+    </g>
+  </g>
+  <rect x="720" y="70" width="76" height="42" rx="6" fill="#122a24" stroke="#2f6b57"/>
+  <text x="758" y="97" fill="#4fd1a5" font-size="14" text-anchor="middle">C01</text>
+  <path d="M666,61 C695,61 695,85 716,89" fill="none" stroke="#4fd1a5" stroke-width="1.4"/>
+  <path d="M666,99 C695,99 695,92 716,92" fill="none" stroke="#4fd1a5" stroke-width="1.4"/>
+  <path d="M666,137 C695,137 695,99 716,95" fill="none" stroke="#4fd1a5" stroke-width="1.4"/>
+  <text x="692" y="140" fill="#2f6b57" font-size="16">⤴</text>
+  <text x="758" y="140" fill="#5f6d7f" font-size="12.5" text-anchor="middle">还是这 32 行</text>
+
+  <!-- bottom verdict -->
+  <rect x="60" y="286" width="736" height="34" rx="8" fill="#231315" stroke="#4a2a2e"/>
+  <text x="428" y="309" fill="#ec6a6a" font-size="14.5" text-anchor="middle" font-weight="700">
+    同样一份 A 数据，右边整片 C 一共要它 32 遍 —— 这就是全部浪费的来源</text>
+</svg>
+<figcaption><b>图 1.</b> C 的每一列，都要 A 的<b>同一批 32 行</b>。而 C 有 32 列——<b>同一份数据被搬了 32 遍。</b>
+  B 那边一模一样，只是方向转 90°。</figcaption>
+</figure>
+
+<div class="note g">
+  <b>后面四个版本，全都只在解决这一件事。</b><br>
+  v1 想办法别搬第二遍，v2 想办法一次多拿点。就这样而已。
+</div>
+
+<!-- 术语 -->
+<h3>先认几个角色（沿用笔记 03 的工厂比喻）</h3>
+<div class="legend">
+<table>
+  <tbody>
+    <tr><td>🏭 厂外大仓库</td><td>显存 DRAM</td><td class="n">4 GB，远，一趟 500 步</td></tr>
+    <tr><td>📦 厂区中转仓</td><td>L2 缓存</td><td class="n">1 MB，自动管</td></tr>
+    <tr><td>🧰 车间货架</td><td>共享内存 shared memory</td><td class="n">每个车间 64 KB，<b>程序自己管</b></td></tr>
+    <tr><td>🫴 工人手上的托盘</td><td>寄存器</td><td class="n">每个车间 64 KB，最快，伸手就有</td></tr>
+    <tr><td>🏃 <b>跑腿的</b></td><td>LD/ST 单元（LSU）</td><td class="n"><b>人数固定</b>，取一次数占一个</td></tr>
+    <tr><td>🔨 工作台</td><td>FP32 运算通道</td><td class="n">896 个，真正做乘加的地方</td></tr>
+  </tbody>
+</table>
+<p style="font-size:14.5px;color:var(--faint);margin:6px 0 0">
+  记住一条就够：<b style="color:var(--fg)">跑腿的人数是固定的。</b>取数指令一多，他们立刻成为瓶颈。</p>
+</div>
+
+<!-- ══════════════ v0 ══════════════ -->
+<div class="v v0">
+  <div class="vhead">
+    <div class="vnum">v0</div>
+    <div class="vttl">
+      <h2>naive</h2>
+      <div class="oneline">把定义直接抄成代码，谁要料谁自己去仓库拿</div>
+    </div>
+  </div>
+  <div class="vbody">
+<pre><span class="cm">// 一个工人 = 一个 C 格子，从头算到尾</span>
+<span class="kw">float</span> acc = 0.f;
+<span class="kw">for</span> (<span class="kw">int</span> k = 0; k &lt; N; ++k)
+    acc += A[row * N + k] * B[k * N + col];   <span class="cm">// 每次都要取 2 个数</span>
+C[row * N + col] = acc;</pre>
+
+<figure>
+<svg viewBox="0 0 820 300" xmlns="http://www.w3.org/2000/svg" font-family="var(--mono),monospace">
+  <defs><marker id="d1" markerWidth="8" markerHeight="8" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L6,2.5 L0,5 z" fill="#ec6a6a"/></marker></defs>
+
+  <!-- warehouse -->
+  <rect x="290" y="14" width="240" height="58" rx="9" fill="#241416" stroke="#4a2a2e"/>
+  <text x="410" y="40" fill="#ec6a6a" font-size="14" text-anchor="middle" font-weight="700">🏭 厂外大仓库</text>
+  <text x="410" y="60" fill="#5f6d7f" font-size="12" text-anchor="middle">A 和 B 都在这儿</text>
+
+  <!-- 8 arrows going up -->
+  <g stroke="#ec6a6a" stroke-width="1.4" marker-end="url(#d1)">
+    <line x1="70"  y1="122" x2="306" y2="78"/>
+    <line x1="170" y1="122" x2="340" y2="78"/>
+    <line x1="270" y1="122" x2="374" y2="78"/>
+    <line x1="370" y1="122" x2="408" y2="78"/>
+    <line x1="450" y1="122" x2="412" y2="78"/>
+    <line x1="550" y1="122" x2="446" y2="78"/>
+    <line x1="650" y1="122" x2="480" y2="78"/>
+    <line x1="750" y1="122" x2="514" y2="78"/>
+  </g>
+  <text x="410" y="112" fill="#ec6a6a" font-size="13" text-anchor="middle">
+    每个人各跑一趟，而且很多人要的是同一批货</text>
+
+  <!-- workers -->
+  <g>
+    <rect x="52" y="130" width="36" height="36" rx="8" fill="#1b2431" stroke="#33445a"/>
+    <rect x="152" y="130" width="36" height="36" rx="8" fill="#1b2431" stroke="#33445a"/>
+    <rect x="252" y="130" width="36" height="36" rx="8" fill="#1b2431" stroke="#33445a"/>
+    <rect x="352" y="130" width="36" height="36" rx="8" fill="#1b2431" stroke="#33445a"/>
+    <rect x="432" y="130" width="36" height="36" rx="8" fill="#1b2431" stroke="#33445a"/>
+    <rect x="532" y="130" width="36" height="36" rx="8" fill="#1b2431" stroke="#33445a"/>
+    <rect x="632" y="130" width="36" height="36" rx="8" fill="#1b2431" stroke="#33445a"/>
+    <rect x="732" y="130" width="36" height="36" rx="8" fill="#1b2431" stroke="#33445a"/>
+  </g>
+  <g fill="#8f9dae" font-size="11" text-anchor="middle">
+    <text x="70" y="153">工人</text><text x="170" y="153">工人</text><text x="270" y="153">工人</text>
+    <text x="370" y="153">工人</text><text x="450" y="153">工人</text><text x="550" y="153">工人</text>
+    <text x="650" y="153">工人</text><text x="750" y="153">工人</text>
+  </g>
+
+  <rect x="52" y="192" width="716" height="40" rx="8" fill="#231315" stroke="#4a2a2e"/>
+  <text x="410" y="217" fill="#ec6a6a" font-size="14" text-anchor="middle">
+    每个工人手上只有 1 个格子 —— 取一次、算一次，取数指令占了一半</text>
+
+  <text x="410" y="264" fill="#8f9dae" font-size="14" text-anchor="middle">
+    每个"乘加"要配 <tspan fill="#ec6a6a" font-weight="700">2 趟取数</tspan></text>
+  <text x="410" y="288" fill="#5f6d7f" font-size="12.5" text-anchor="middle">
+    —— 跑腿的根本停不下来</text>
+</svg>
+<figcaption><b>图 2.</b> v0 的样子。<b>取数指令和乘加指令一样多</b>——跑腿的被活活累死，
+  而真正干活的工作台大部分时间在等人递料。</figcaption>
+</figure>
+
+<div class="onething">
+  <div class="k">只改了这一件事</div>
+  <div class="v">这是<b>基准</b>，什么都没改。先跑出一个能对上答案的正确版本，后面每一步都跟它比。</div>
+</div>
+
+<div class="bill">
+  <div class="stat"><div class="k">耗时</div><div class="v" style="color:var(--a)">10.970 ms</div><div class="d">相对 v0：1.00×</div></div>
+  <div class="stat"><div class="k">算力</div><div class="v">195.8</div><div class="d">GFLOP/s，峰值 7.1%</div></div>
+  <div class="stat"><div class="k">最忙的是谁</div><div class="v" style="color:var(--bad);font-size:17px">跑腿的 87.4%</div><div class="d">工作台只有 21.9%</div></div>
+</div>
+
+<div class="note r">
+  <b>新的麻烦：</b>跑腿的（87.4%）和货架（88.3%）双双快要爆表，工作台却闲着一大半。<br>
+  → 下一步：<b>别再让那么多人跑仓库了。</b>
+</div>
+  </div>
+</div>
+
+<!-- ══════════════ v1 ══════════════ -->
+<div class="v v1">
+  <div class="vhead">
+    <div class="vnum">v1</div>
+    <div class="vttl">
+      <h2>tiled</h2>
+      <div class="oneline">在车间里放一个货架：跑一趟仓库，全班一起用</div>
+    </div>
+  </div>
+  <div class="vbody">
+<pre><span class="kw">__shared__ float</span> As[32][32], Bs[32][32];   <span class="cm">// 车间货架</span>
+
+<span class="kw">for</span> (<span class="kw">int</span> t = 0; t &lt; 32; ++t) {
+    <span class="hl">As</span>[ty][tx] = A[row * N + t*32 + tx];   <span class="cm">// 全班 1024 人，每人搬 1 个</span>
+    <span class="hl">Bs</span>[ty][tx] = B[(t*32+ty) * N + col];  <span class="cm">// —— 一趟就搬完 32×32</span>
+    __syncthreads();                        <span class="cm">// 等大家搬完</span>
+
+    <span class="kw">for</span> (<span class="kw">int</span> k = 0; k &lt; 32; ++k)
+        acc += As[ty][k] * Bs[k][tx];       <span class="cm">// 从<b>货架</b>拿，不是仓库</span>
+    __syncthreads();
+}</pre>
+
+<figure>
+<svg viewBox="0 0 820 380" xmlns="http://www.w3.org/2000/svg" font-family="var(--mono),monospace">
+  <defs><marker id="d2" markerWidth="8" markerHeight="8" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L6,2.5 L0,5 z" fill="#4fd1a5"/></marker></defs>
+
+  <rect x="290" y="12" width="240" height="54" rx="9" fill="#241416" stroke="#4a2a2e"/>
+  <text x="410" y="36" fill="#ec6a6a" font-size="13.5" text-anchor="middle" font-weight="700">🏭 厂外大仓库</text>
+  <text x="410" y="55" fill="#5f6d7f" font-size="11.5" text-anchor="middle">一趟搬 32×32 够全班用</text>
+
+  <!-- ONE arrow -->
+  <line x1="410" y1="70" x2="410" y2="108" stroke="#4fd1a5" stroke-width="2.4" marker-end="url(#d2)"/>
+  <text x="424" y="94" fill="#4fd1a5" font-size="13" font-weight="700">只跑一趟 ✓</text>
+
+  <!-- shelf -->
+  <rect x="230" y="118" width="360" height="62" rx="9" fill="#122a24" stroke="#2f6b57" stroke-width="1.6"/>
+  <text x="410" y="143" fill="#4fd1a5" font-size="15" text-anchor="middle" font-weight="700">🧰 车间货架（共享内存）</text>
+  <text x="410" y="164" fill="#8f9dae" font-size="12" text-anchor="middle">全 block 1024 人共用这一份，8 KB</text>
+
+  <!-- arrows from shelf down to workers -->
+  <g stroke="#4fd1a5" stroke-width="1.3" marker-end="url(#d2)" opacity=".8">
+    <line x1="270" y1="182" x2="150" y2="226"/>
+    <line x1="340" y1="182" x2="290" y2="226"/>
+    <line x1="400" y1="182" x2="430" y2="226"/>
+    <line x1="470" y1="182" x2="570" y2="226"/>
+  </g>
+  <text x="410" y="212" fill="#4fd1a5" font-size="12.5" text-anchor="middle">全班就近取料</text>
+
+  <g>
+    <rect x="72" y="234" width="150" height="46" rx="8" fill="#1b2431" stroke="#33445a"/>
+    <rect x="232" y="234" width="150" height="46" rx="8" fill="#1b2431" stroke="#33445a"/>
+    <rect x="392" y="234" width="150" height="46" rx="8" fill="#1b2431" stroke="#33445a"/>
+    <rect x="552" y="234" width="150" height="46" rx="8" fill="#1b2431" stroke="#33445a"/>
+  </g>
+  <g fill="#8f9dae" font-size="12" text-anchor="middle">
+    <text x="147" y="262">32 个工人</text><text x="307" y="262">32 个工人</text>
+    <text x="467" y="262">32 个工人</text><text x="627" y="262">32 个工人</text>
+  </g>
+
+  <rect x="72" y="300" width="630" height="42" rx="8" fill="#0e211c" stroke="#2f6b57"/>
+  <text x="387" y="326" fill="#4fd1a5" font-size="14" text-anchor="middle">
+    去仓库的次数：每个工人 2048 → <tspan font-weight="700">64</tspan>（省了 32 倍）</text>
+
+  <text x="410" y="368" fill="#8f9dae" font-size="14" text-anchor="middle">
+    但每做 1 次乘加，<tspan fill="#f5c451" font-weight="700">还是要 2 趟取数</tspan> —— 只是从货架拿，近多了</text>
+</svg>
+<figcaption><b>图 3.</b> 加一个货架。<b>去仓库搬货的次数降到 1/32</b>，因为同一批货现在全班共用一份。</figcaption>
+</figure>
+
+<div class="onething">
+  <div class="k">只改了这一件事</div>
+  <div class="v">换了个地方放料 —— <b>从"各自去仓库"改成"先搬到车间货架，全班共用"</b>。<br>
+    取数的<b>次数</b>没变，变的是取数的<b>距离</b>。</div>
+</div>
+
+<div class="bill">
+  <div class="stat"><div class="k">耗时</div><div class="v" style="color:var(--c)">7.815 ms</div><div class="d">相对 v0：<b>1.40×</b></div></div>
+  <div class="stat"><div class="k">算力</div><div class="v">274.8</div><div class="d">GFLOP/s，峰值 10.0%</div></div>
+  <div class="stat"><div class="k">最忙的是谁</div><div class="v" style="color:var(--warn);font-size:17px">跑腿的 71.9%</div><div class="d">还是它，只是轻了点</div></div>
+</div>
+
+<div class="note w">
+  <b>才快 1.40 倍？</b>因为仓库<b>本来就没被累到</b>——车间里那个自动货架（L1 缓存）早就在偷偷帮你接住重复取料了，
+  命中率 <b>94.9%</b>。所以 v1 省下的不是"跑仓库的次数"，而是"<b>跑腿的在车间里来回搬的次数</b>"。<br>
+  <span style="color:var(--dim);font-size:15px">这也是本页最想让人记住的一条：<b>算出来"要搬 32 遍"不等于"仓库真的搬了 32 遍"</b>——
+  中间隔着一层缓存。想知道物理上到底搬了几次，只能看计数器。</span>
+</div>
+
+<div class="note r">
+  <b>新的麻烦：</b>跑腿的（71.9%）依然是最忙的那个。货架加得再大也没用——<br>
+  → 下一步：<b>减少取数的"次数"本身。</b>
+</div>
+  </div>
+</div>
+
+<!-- ══════════════ v2 ══════════════ -->
+<div class="v v2">
+  <div class="vhead">
+    <div class="vnum">v2</div>
+    <div class="vttl">
+      <h2>tiled + reg</h2>
+      <div class="oneline">一次从货架抱 8 个回去，攒够 16 个活儿再跑一趟</div>
+    </div>
+  </div>
+  <div class="vbody">
+<pre><span class="kw">float</span> acc[4][4];                          <span class="cm">// 手上一次端 16 个格子</span>
+
+<span class="kw">for</span> (<span class="kw">int</span> k = 0; k &lt; 16; ++k) {
+    <span class="kw">float</span> aReg[4], bReg[4];
+    <span class="hl">for (i) aReg[i] = As[k][ty*4 + i];</span>      <span class="cm">// 取 4 个</span>
+    <span class="hl">for (j) bReg[j] = Bs[k][tx*4 + j];</span>      <span class="cm">// 取 4 个</span>
+    <span class="cm">// —— 一共只跑 8 趟腿，却做出 16 个乘加：</span>
+    <span class="kw">for</span> (i) <span class="kw">for</span> (j) acc[i][j] += aReg[i] * bReg[j];   <span class="cm">// ★ 16 次乘加</span>
+}</pre>
+
+<figure>
+<svg viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg" font-family="var(--mono),monospace">
+  <!-- shelf -->
+  <rect x="30" y="18" width="200" height="52" rx="9" fill="#122a24" stroke="#2f6b57"/>
+  <text x="130" y="40" fill="#4fd1a5" font-size="13.5" text-anchor="middle" font-weight="700">🧰 车间货架</text>
+  <text x="130" y="58" fill="#8f9dae" font-size="11.5" text-anchor="middle">取 8 个</text>
+
+  <!-- grab -->
+  <path d="M234,44 C280,44 280,86 320,92" fill="none" stroke="#f2994a" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="276" y="70" fill="#f2994a" font-size="12.5" font-weight="700">一趟抱 8 个</text>
+
+  <!-- tray -->
+  <rect x="326" y="70" width="200" height="46" rx="9" fill="#2a1f16" stroke="#5a4433"/>
+  <text x="426" y="99" fill="#f2994a" font-size="13" text-anchor="middle" font-weight="700">🫴 手上托盘 aReg[4] bReg[4]</text>
+
+  <path d="M530,93 C580,93 580,120 610,124" fill="none" stroke="#f2994a" stroke-width="2" stroke-dasharray="5 4"/>
+
+  <!-- acc grid -->
+  <rect x="616" y="40" width="170" height="150" fill="#0e211c" stroke="#2f6b57"/>
+  <g stroke="#2f6b57" stroke-width=".8">
+    <line x1="658" y1="40" x2="658" y2="190"/><line x1="700" y1="40" x2="700" y2="190"/><line x1="744" y1="40" x2="744" y2="190"/>
+    <line x1="616" y1="78" x2="786" y2="78"/><line x1="616" y1="116" x2="786" y2="116"/><line x1="616" y1="154" x2="786" y2="154"/>
+  </g>
+  <g fill="#4fd1a5" font-size="10.5" opacity=".55" text-anchor="middle">
+    <text x="637" y="64">a0b0</text><text x="679" y="64">a0b1</text><text x="722" y="64">a0b2</text><text x="765" y="64">a0b3</text>
+    <text x="637" y="102">a1b0</text><text x="679" y="102">a1b1</text><text x="722" y="102">a1b2</text><text x="765" y="102">a1b3</text>
+    <text x="637" y="140">a2b0</text><text x="679" y="140">a2b1</text><text x="722" y="140">a2b2</text><text x="765" y="140">a2b3</text>
+    <text x="637" y="178">a3b0</text><text x="679" y="178">a3b1</text><text x="722" y="178">a3b2</text><text x="765" y="178">a3b3</text>
+  </g>
+  <text x="701" y="212" fill="#8f9dae" font-size="12" text-anchor="middle">手上一次端 16 个结果</text>
+
+  <!-- bottom ratio -->
+  <rect x="30" y="248" width="756" height="72" rx="10" fill="#211c0f" stroke="#6b5a2f"/>
+  <text x="408" y="278" fill="#f5c451" font-size="15.5" text-anchor="middle" font-weight="700">
+    每趟腿干的活变多了：取 8 个 → 做 16 次乘加</text>
+  <text x="408" y="304" fill="#8f9dae" font-size="14" text-anchor="middle">
+    v0/v1 是「取 2 个 → 做 1 次乘加」；v2 把比例从 2:1 压到 <tspan fill="#4fd1a5" font-weight="700">0.5:1</tspan>，取数指令数降到 1/4</text>
+</svg>
+<figcaption><b>图 4.</b> 关键在最后那两行：取来的 <code>a0</code> 被用了 4 次，<code>b0</code> 也被用了 4 次——
+  <b>复用在手上完成，一趟腿摊薄到 16 个活儿上。</b></figcaption>
+</figure>
+
+<div class="onething">
+  <div class="k">只改了这一件事</div>
+  <div class="v">让每个工人<b>手上一次端 16 个格子</b>。<br>
+    料从哪来没变（还是货架），变的是<b>每跑一趟腿能干多少活</b>。</div>
+</div>
+
+<div class="bill">
+  <div class="stat"><div class="k">耗时</div><div class="v" style="color:var(--b)">3.721 ms</div><div class="d">相对 v0：<b>2.95×</b></div></div>
+  <div class="stat"><div class="k">算力</div><div class="v">577.1</div><div class="d">GFLOP/s，峰值 20.9%</div></div>
+  <div class="stat"><div class="k">最忙的是谁</div><div class="v" style="color:var(--bad);font-size:17px">货架 97.3%</div><div class="d">跑腿的降到 20.1%</div></div>
+</div>
+
+<div class="note r">
+  <b>新的麻烦：</b>跑腿的终于闲下来了 ✅，可 <b>货架被挤爆了（97.3%）</b>——所有人都在从货架上抓料，货架扛不住了。<br>
+  看着下一步该"再少抓几次"——<b>但真正管用的不是这个。</b>见 v3。
+</div>
+  </div>
+</div>
+
+<!-- ══════════════ v3 ══════════════ -->
+<div class="v v3">
+  <div class="vhead">
+    <div class="vnum">v3</div>
+    <div class="vttl">
+      <h2>tiled + reg2</h2>
+      <div class="oneline">不搬得更少，而是<b>把取料的队形排对</b> —— 照 ncu 官方 rules 改</div>
+    </div>
+  </div>
+  <div class="vbody">
+
+    <div class="note">
+      <b>这一步的转折：官方 diagnostics 推翻了我们的方向。</b><br>
+      v2 之后最忙的是货架（97.3%），看起来该"再取少一点"。但 <code>ncu --set full</code> 给出的第一条建议是：
+      <pre style="margin:12px 0 0"><span class="kw">OPT  Est. Speedup: 59.93%</span>  全局 load 访存模式差：
+                   每个 32 字节的 sector，每线程只用到 <span class="hl">7.1 字节</span>
+<span class="kw">OPT  Est. Speedup: 57.79%</span>  全局 store 同样差：只用到 8.0 字节
+<span class="kw">OPT  Est. Speedup: 48.19%</span>  每个 warp 平均花 19.7 周期等 MIO 指令队列</pre>
+      <span style="color:var(--dim);font-size:15px">问题不是"取得太频繁"，是<b>每次取都在浪费</b>——跑腿的拉回来 32 字节，只用得上 7 个。</span>
+    </div>
+
+    <figure>
+<svg viewBox="0 0 820 350" xmlns="http://www.w3.org/2000/svg" font-family="var(--mono),monospace">
+  <defs><marker id="d4" markerWidth="8" markerHeight="8" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L6,2.5 L0,5 z" fill="#ec6a6a"/></marker>
+    <marker id="d5" markerWidth="8" markerHeight="8" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L6,2.5 L0,5 z" fill="#4fd1a5"/></marker></defs>
+
+  <text x="20" y="24" fill="#ec6a6a" font-size="14" font-weight="700">改前 · 32 个工人各取各行的第 k 个</text>
+  <g fill="#8f9dae" font-size="10.5" text-anchor="middle">
+    <text x="90" y="48">工人0</text><text x="200" y="48">工人1</text>
+    <text x="310" y="48">工人2</text><text x="530" y="48">工人31</text>
+  </g>
+  <g stroke="#ec6a6a" stroke-width="1.3" marker-end="url(#d4)">
+    <line x1="90" y1="56" x2="90" y2="76"/><line x1="200" y1="56" x2="200" y2="76"/>
+    <line x1="310" y1="56" x2="310" y2="76"/><line x1="530" y1="56" x2="530" y2="76"/>
+  </g>
+  <g>
+    <rect x="40" y="82" width="100" height="30" rx="4" fill="#1b2431" stroke="#4a2a2e"/>
+    <rect x="150" y="82" width="100" height="30" rx="4" fill="#1b2431" stroke="#4a2a2e"/>
+    <rect x="260" y="82" width="100" height="30" rx="4" fill="#1b2431" stroke="#4a2a2e"/>
+    <text x="430" y="103" fill="#5f6d7f" font-size="14" text-anchor="middle">· · ·</text>
+    <rect x="490" y="82" width="100" height="30" rx="4" fill="#1b2431" stroke="#4a2a2e"/>
+  </g>
+  <g fill="#ec6a6a">
+    <rect x="44" y="86" width="22" height="22"/><rect x="154" y="86" width="22" height="22"/>
+    <rect x="264" y="86" width="22" height="22"/><rect x="494" y="86" width="22" height="22"/>
+  </g>
+  <text x="640" y="103" fill="#ec6a6a" font-size="12">每块只用 8/32 字节</text>
+
+  <rect x="40" y="126" width="550" height="30" rx="6" fill="#231315" stroke="#4a2a2e"/>
+  <text x="315" y="146" fill="#ec6a6a" font-size="13" text-anchor="middle">
+    取的数据散在 32 个不同的块里 —— 跑腿的拉回 32 字节，有 24 字节是白拉的</text>
+
+  <line x1="20" y1="176" x2="800" y2="176" stroke="#2a3543" stroke-dasharray="6 6"/>
+
+  <text x="20" y="204" fill="#4fd1a5" font-size="14" font-weight="700">改后 · 32 个工人一起取同一行的连续 32 个</text>
+  <g fill="#8f9dae" font-size="10.5" text-anchor="middle">
+    <text x="90" y="228">工人0</text><text x="180" y="228">工人1</text>
+    <text x="270" y="228">工人2</text><text x="480" y="228">工人31</text>
+  </g>
+  <g stroke="#4fd1a5" stroke-width="1.3" marker-end="url(#d5)">
+    <line x1="90" y1="236" x2="90" y2="256"/><line x1="180" y1="236" x2="180" y2="256"/>
+    <line x1="270" y1="236" x2="270" y2="256"/><line x1="480" y1="236" x2="480" y2="256"/>
+  </g>
+  <rect x="40" y="262" width="640" height="30" rx="4" fill="#122a24" stroke="#2f6b57"/>
+  <g fill="#4fd1a5">
+    <rect x="44" y="266" width="22" height="22"/><rect x="70" y="266" width="22" height="22"/>
+    <rect x="96" y="266" width="22" height="22"/><rect x="122" y="266" width="22" height="22"/>
+    <rect x="148" y="266" width="22" height="22"/><rect x="174" y="266" width="22" height="22"/>
+    <rect x="200" y="266" width="22" height="22"/><rect x="226" y="266" width="22" height="22"/>
+    <rect x="252" y="266" width="22" height="22"/><rect x="278" y="266" width="22" height="22"/>
+    <rect x="304" y="266" width="22" height="22"/><rect x="330" y="266" width="22" height="22"/>
+    <rect x="356" y="266" width="22" height="22"/><rect x="382" y="266" width="22" height="22"/>
+    <rect x="408" y="266" width="22" height="22"/><rect x="434" y="266" width="22" height="22"/>
+  </g>
+  <text x="700" y="283" fill="#4fd1a5" font-size="12">装满 ✓</text>
+
+  <rect x="40" y="306" width="640" height="30" rx="6" fill="#0e211c" stroke="#2f6b57"/>
+  <text x="360" y="326" fill="#4fd1a5" font-size="13" text-anchor="middle">
+    一趟拉齐 —— 同样 32 个工人，取数指令数不变，但每趟都不浪费</text>
+</svg>
+<figcaption><b>图 5.</b> 同样多的取数指令，<b>队形一排好，每趟就都装满了</b>。
+  术语叫 <b>合并访存（coalescing）</b>——让 32 个工人要的货在内存里挨着。</figcaption>
+    </figure>
+
+<pre><span class="cm">// 三处改动，全是"队形"问题，没有一处是"少取几次"</span>
+
+<span class="cm">// ① 全局 load：原来 warp 内 32 个线程读 32 个不同的行（步长 N）</span>
+<span class="cm">//    → 换成连续线程读连续的 k</span>
+As[c][r] = A[(<span class="kw">size_t</span>)(rowStart + r) * N + t + c];   <span class="hl">// 合并 ✓</span>
+
+<span class="cm">// ② 全局 store：原来按 tx*4 跨步写，每个 sector 只用 8/32 字节</span>
+<span class="hl">*reinterpret_cast&lt;float4*&gt;(&amp;C[...]) = v;</span>              <span class="cm">// 一次写 16 B ✓</span>
+
+<span class="cm">// ③ 共享内存取数：一条 float4 顶 4 条 → MIO 队列压力降下来</span>
+<span class="hl">float4 a4 = *reinterpret_cast&lt;const float4*&gt;(&amp;As[k][ty*4]);</span></pre>
+
+    <div class="onething">
+      <div class="k">只改了这一件事</div>
+      <div class="v">换的是<b>取数的"方式"</b>，不是次数：<br>
+        让 32 个工人要的数据在内存里挨着，一趟拉齐、一趟写齐、一条指令取 4 个。</div>
+    </div>
+
+    <div class="bill">
+      <div class="stat"><div class="k">耗时</div><div class="v" style="color:var(--p)">2.036 ms</div><div class="d">相对 v0：<b>5.39×</b></div></div>
+      <div class="stat"><div class="k">算力</div><div class="v">1054.5</div><div class="d">GFLOP/s，峰值 38.2%</div></div>
+      <div class="stat"><div class="k">工作台终于忙起来</div><div class="v" style="color:var(--c);font-size:17px">28.4% → 54.4%</div><div class="d">算力真正用上了一半</div></div>
+      <div class="stat"><div class="k">占用率</div><div class="v" style="color:var(--warn);font-size:17px">96% → 72%</div><div class="d">降了，但更快了</div></div>
+    </div>
+
+    <div class="note g">
+      <b>官方估 60%，实际拿到 45%</b>（3.696 → 2.036 ms，+82%）。三条指路全部应验：
+      访存告警消失、MIO 等待从 19.7 周期降到 7.1、发射间隔 5.3 → 2.7 周期。<br>
+      顺带一个反直觉：<b>占用率从 96% 掉到 72%，性能反而涨了 82%</b>——
+      <b>占用率从来不是目标，只是手段。</b>
+    </div>
+
+    <div class="note r">
+      <b>新的麻烦：</b>这次官方指着<b>货架本身</b>了——共享内存 store 有
+      <b>1.5 路 bank conflict</b>（524288 次），而且每 2.7 周期才发得出一条指令。<br>
+      → 下一步：<b>消除货架上的碰撞。</b>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ v4 ══════════════ -->
+<div class="v v4 next">
+  <div class="vhead">
+    <div class="vnum">v4</div>
+    <div class="vttl">
+      <h2 style="color:var(--warn)">消除 bank conflict <span style="font-size:15px">+ 一次端 64 个</span></h2>
+      <div class="oneline">官方已经指名了下一个目标 —— <b style="color:var(--warn)">还未实现</b></div>
+    </div>
+  </div>
+  <div class="vbody">
+    <p>v3 之后 <code>ncu --set full</code> 给的新指路：</p>
+    <pre><span class="kw">OPT  Est. Speedup: 31.57%</span>  共享内存 store 有 <span class="hl">1.5 路 bank conflict</span>（524288 次）
+<span class="kw">OPT  Est. Local Speedup: 47.53%</span>  每 <span class="hl">2.7 周期</span>才发得出一条指令
+<span class="kw">OPT  Est. Speedup: 44.78%</span>  warp 仍在等 MIO 队列（7.1 周期）</pre>
+
+    <table>
+      <thead><tr><th>方向</th><th>做法</th><th>为什么</th></tr></thead>
+      <tbody>
+        <tr><td>消冲突</td><td>调整 <code>As/Bs</code> 的行距或索引映射</td>
+            <td>同样一趟腿，别让两个工人抢同一个货架格</td></tr>
+        <tr><td>再摊薄</td><td>每个工人端 <b>8×8 = 64</b> 个（现在 4×4=16）</td>
+            <td>取 16 个 → 做 64 次乘加，比例 0.5:1 → 0.25:1</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note w">
+      <b>目标：</b>把工作台（现在 54.4%）推到真正的天花板。
+      离峰值 38.2% 还远——<b>远没收敛。</b>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 总表 ══════════════ -->
+<h3>四个版本摆一起</h3>
+<table>
+  <thead><tr>
+    <th>版本</th><th>换的是哪一类</th><th>改的那一件事</th><th class="n">耗时</th><th class="n">倍数</th><th>最忙的是谁</th>
+  </tr></thead>
+  <tbody>
+    <tr><td style="color:var(--a);font-weight:700">v0 naive</td><td>—</td><td>基准（定义直译）</td><td class="n">10.970 ms</td><td class="n">1.00×</td><td>跑腿的 87.4%</td></tr>
+    <tr><td style="color:var(--c);font-weight:700">v1 tiled</td><td>位置</td><td>料先搬到车间货架</td><td class="n">7.815 ms</td><td class="n">1.40×</td><td>跑腿的 71.9%</td></tr>
+    <tr><td style="color:var(--b);font-weight:700">v2 reg</td><td>次数</td><td>一次端 16 个格子</td><td class="n">3.721 ms</td><td class="n">2.95×</td><td>货架 97.3%</td></tr>
+    <tr><td style="color:var(--p);font-weight:700">v3 reg2</td><td>方式</td><td>把取料的队形排对（合并访存）</td><td class="n">2.036 ms</td><td class="n">5.39×</td><td>货架 90.0%</td></tr>
+    <tr style="opacity:.72"><td style="color:var(--warn);font-weight:700">v4 下一步</td><td>—</td><td>消 bank conflict + 端 64 个</td><td class="n">—</td><td class="n">—</td><td>目标：工作台</td></tr>
+  </tbody>
+</table>
+
+<figure>
+<svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg" font-family="var(--mono),monospace">
+  <defs><marker id="d3" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L7,3 L0,6 z" fill="#f5c451"/></marker></defs>
+
+  <text x="20" y="26" fill="#8f9dae" font-size="13.5">最忙的那个角色，每一步都在换人 ——</text>
+
+  <rect x="14" y="44" width="190" height="92" rx="10" fill="#1b2431" stroke="#33445a"/>
+  <text x="109" y="70" fill="#5aa9e6" font-size="14" font-weight="700" text-anchor="middle">v0 naive</text>
+  <text x="109" y="95" fill="#ec6a6a" font-size="12.5" text-anchor="middle">🏃 跑腿的 87%</text>
+  <text x="109" y="115" fill="#5f6d7f" font-size="11" text-anchor="middle">仓库只用了 9%</text>
+
+  <path d="M206,90 L232,90" stroke="#f5c451" stroke-width="1.6" marker-end="url(#d3)"/>
+  <text x="219" y="80" fill="#f5c451" font-size="10" text-anchor="middle">换位置</text>
+
+  <rect x="236" y="44" width="190" height="92" rx="10" fill="#1b2431" stroke="#33445a"/>
+  <text x="331" y="70" fill="#4fd1a5" font-size="14" font-weight="700" text-anchor="middle">v1 tiled</text>
+  <text x="331" y="95" fill="#ec6a6a" font-size="12.5" text-anchor="middle">🏃 跑腿的 72%</text>
+  <text x="331" y="115" fill="#5f6d7f" font-size="11" text-anchor="middle">还是它，轻了点</text>
+
+  <path d="M428,90 L454,90" stroke="#f5c451" stroke-width="1.6" marker-end="url(#d3)"/>
+  <text x="441" y="80" fill="#f5c451" font-size="10" text-anchor="middle">换次数</text>
+
+  <rect x="458" y="44" width="190" height="92" rx="10" fill="#2a2310" stroke="#6b5a2f"/>
+  <text x="553" y="70" fill="#f2994a" font-size="14" font-weight="700" text-anchor="middle">v2 reg</text>
+  <text x="553" y="95" fill="#f5c451" font-size="12.5" text-anchor="middle">🧰 货架 97% ← 新瓶颈</text>
+  <text x="553" y="115" fill="#5f6d7f" font-size="11" text-anchor="middle">跑腿的降到 20%</text>
+
+  <path d="M650,90 L676,90" stroke="#f5c451" stroke-width="1.6" marker-end="url(#d3)"/>
+  <text x="663" y="80" fill="#f5c451" font-size="10" text-anchor="middle">换方式</text>
+
+  <rect x="680" y="44" width="166" height="92" rx="10" fill="#251a30" stroke="#5c4270"/>
+  <text x="763" y="70" fill="#c792ea" font-size="14" font-weight="700" text-anchor="middle">v3 reg2</text>
+  <text x="763" y="95" fill="#c792ea" font-size="12.5" text-anchor="middle">🧰 货架 90%</text>
+  <text x="763" y="115" fill="#4fd1a5" font-size="11" text-anchor="middle">工作台 28→54% ↑</text>
+
+  <rect x="14" y="156" width="832" height="88" rx="10" fill="#171509" stroke="#4a4230" stroke-dasharray="5 4"/>
+  <text x="430" y="184" fill="#f5c451" font-size="14" text-anchor="middle" font-weight="700">
+    瓶颈不会消失，只会搬家：跑腿的 → 跑腿的 → 货架 → 货架 → 下一站是工作台</text>
+  <text x="430" y="212" fill="#8f9dae" font-size="12.5" text-anchor="middle">
+    每一步都得换方法。货架加得再大治不了"跑腿的"，多拿点治不了"队形"——
+    这也是为什么 v3 的突破口是 ncu 的一句告警，而不是上一招的延长线。</text>
+  <text x="430" y="234" fill="#5f6d7f" font-size="12" text-anchor="middle">
+    仓库（DRAM）从头到尾都在看戏：9% → 10% → 15% → 22%（而 22% 只是因为总时间变短了）</text>
+</svg>
+<figcaption><b>图 6.</b> 这就是整个流程的形状。<b>仓库（DRAM）从头到尾都在看戏</b>（9~22%），
+  真正的战场一直在车间内部。</figcaption>
+</figure>
+
+<!-- ══════════════ 附录 ══════════════ -->
+<h3>附录 · 那个 S 是什么</h3>
+<div class="legend">
+<p style="margin-top:0"><code>sgemm</code> = <b>S</b>ingle · <b>GE</b>neral · <b>M</b>atrix-<b>M</b>ultiply，是 BLAS 的命名法，每位回答一个问题：</p>
+<table>
+  <thead><tr><th>位置</th><th>回答什么</th><th>取值</th></tr></thead>
+  <tbody>
+    <tr><td class="n">S</td><td>什么<b>类型</b></td><td><code>S</code>=fp32 · <code>D</code>=fp64 · <code>C</code>=复数单 · <code>Z</code>=复数双</td></tr>
+    <tr><td class="n">GE</td><td>矩阵<b>结构</b></td><td><code>GE</code>=一般矩阵（不假定对称/三角/带状）</td></tr>
+    <tr><td class="n">MM</td><td>做<b>什么运算</b></td><td><code>MM</code>=矩阵×矩阵</td></tr>
+  </tbody>
+</table>
+<p style="font-size:14.5px;color:var(--dim);margin-bottom:0">
+  只加一个字母就换一家：<code>dgemm</code> 双精度、<code>sgemv</code> 矩阵×向量、<code>symm</code> 对称矩阵×矩阵。<br>
+  两个常问的点：<b>为什么只有一个字母</b>——Fortran 77 标识符上限 6 个字符，<code>SGEMM</code> 正好 6 个；
+  <b>为什么 Z 不是复数双的 C</b>——<code>C</code> 被单精度复数占了，双精度复数只能用没被占的 <code>Z</code>。<br>
+  ⚠️ 别外推到半精度：netlib BLAS 里没有 fp16，<code>cublasHgemm</code> 的 <code>H</code> 是厂商后来加的。
+</p>
+</div>
+
+<div class="foot">
+  数字全部来自本机实测（T600 Laptop / sm_75 / N=1024 / 工作集 12 MB，L2 只有 1 MB）。<br>
+  耗时与倍数取自 <code>sgemm_qa.md</code> §一那张四版总表；瓶颈百分比取自 <code>sgemm_ncu.txt</code>。<br>
+  代码 <code>phase0/cuda/sgemm.cu</code>（<code>sgemm_naive</code> / <code>sgemm_tiled</code> / <code>sgemm_reg</code> / <code>sgemm_reg2</code>）·
+  报告 <code>phase0/reports/sgemm_qa.md</code> · 原始计数器 <code>phase0/reports/sgemm_ncu.txt</code><br>
+  工厂比喻沿用 <code>phase0/notes/03_factory_analogy.md</code>；瓶颈判别方法见 <code>phase0/notes/09_kernel_optimization_workflow.md</code>。
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,184 @@
+﻿# sector / 访存指令 —— 原始证据
+# 采集于 2026-10-02 · NVIDIA T600 Laptop GPU (sm_75) · CUDA 12.6 · Nsight Compute 2024.3.1
+# 配套解读：phase0/notes/06_sector_and_instructions.md
+# 所有命令都从仓库根目录执行（路径含中文，工具依赖相对路径）
+
+=== [1] SASS：不同向量宽度生成什么访存指令 ===
+$ nvcc -arch=sm_75 -cubin -Xptxas -v -o <tmp>\membound_sweep.cubin phase0\cuda\membound_sweep.cu
+ptxas info    : 0 bytes gmem
+ptxas info    : Compiling entry function '_Z13add_f4_stridePK6float4S1_PS_i' for 'sm_75'
+ptxas info    : Function properties for _Z13add_f4_stridePK6float4S1_PS_i
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 40 registers, used 0 barriers, 380 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z6add_f4PK6float4S1_PS_i' for 'sm_75'
+ptxas info    : Function properties for _Z6add_f4PK6float4S1_PS_i
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 18 registers, used 0 barriers, 380 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z6add_f3PK6float3S1_PS_i' for 'sm_75'
+ptxas info    : Function properties for _Z6add_f3PK6float3S1_PS_i
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 18 registers, used 0 barriers, 380 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z6add_f2PK6float2S1_PS_i' for 'sm_75'
+ptxas info    : Function properties for _Z6add_f2PK6float2S1_PS_i
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 12 registers, used 0 barriers, 380 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z6add_f1PKfS0_Pfi' for 'sm_75'
+ptxas info    : Function properties for _Z6add_f1PKfS0_Pfi
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 12 registers, used 0 barriers, 380 bytes cmem[0]
+
+$ cuobjdump -sass <tmp>\membound_sweep.cubin   （只摘 add_f1/f2/f3/f4 四个 kernel）
+
+Function : _Z6add_f4PK6float4S1_PS_i
+   MOV R1, c[0x0][0x28] ;                        /* 0x00000a0000017a02 */
+   S2R R6, SR_CTAID.X ;                          /* 0x0000000000067919 */
+   S2R R3, SR_TID.X ;                            /* 0x0000000000037919 */
+   IMAD R6, R6, c[0x0][0x0], R3 ;                /* 0x0000000006067a24 */
+   ISETP.GE.AND P0, PT, R6, c[0x0][0x178], PT ;  /* 0x00005e0006007a0c */
+   @P0 EXIT ;                                        /* 0x000000000000094d */
+   MOV R7, 0x10 ;                                /* 0x0000001000077802 */
+   IMAD.WIDE R2, R6, R7, c[0x0][0x160] ;         /* 0x0000580006027625 */
+   IMAD.WIDE R4, R6, R7, c[0x0][0x168] ;         /* 0x00005a0006047625 */
+   LDG.E.128.CONSTANT.SYS R8, [R2] ;             /* 0x0000000002087381 */
+   LDG.E.128.CONSTANT.SYS R12, [R4] ;            /* 0x00000000040c7381 */
+   IMAD.WIDE R6, R6, R7, c[0x0][0x170] ;         /* 0x00005c0006067625 */
+   FADD R11, R11, R15 ;                          /* 0x0000000f0b0b7221 */
+   FADD R10, R10, R14 ;                          /* 0x0000000e0a0a7221 */
+   FADD R9, R9, R13 ;                            /* 0x0000000d09097221 */
+   FADD R8, R8, R12 ;                            /* 0x0000000c08087221 */
+   STG.E.128.SYS [R6], R8 ;                      /* 0x0000000806007386 */
+   EXIT ;                                        /* 0x000000000000794d */
+   BRA 0x120;                                    /* 0xfffffff000007947 */
+   NOP;                                          /* 0x0000000000007918 */
+   NOP;                                          /* 0x0000000000007918 */
+   NOP;                                          /* 0x0000000000007918 */
+   NOP;                                          /* 0x0000000000007918 */
+   NOP;                                          /* 0x0000000000007918 */
+
+Function : _Z6add_f3PK6float3S1_PS_i
+   MOV R1, c[0x0][0x28] ;                        /* 0x00000a0000017a02 */
+   S2R R6, SR_CTAID.X ;                          /* 0x0000000000067919 */
+   S2R R3, SR_TID.X ;                            /* 0x0000000000037919 */
+   IMAD R6, R6, c[0x0][0x0], R3 ;                /* 0x0000000006067a24 */
+   ISETP.GE.AND P0, PT, R6, c[0x0][0x178], PT ;  /* 0x00005e0006007a0c */
+   @P0 EXIT ;                                        /* 0x000000000000094d */
+   MOV R15, 0xc ;                                /* 0x0000000c000f7802 */
+   IMAD.WIDE R4, R6, R15, c[0x0][0x168] ;        /* 0x00005a0006047625 */
+   IMAD.WIDE R2, R6, R15, c[0x0][0x160] ;        /* 0x0000580006027625 */
+   LDG.E.CONSTANT.SYS R0, [R4] ;                 /* 0x0000000004007381 */
+   LDG.E.CONSTANT.SYS R7, [R2] ;                 /* 0x0000000002077381 */
+   LDG.E.CONSTANT.SYS R8, [R4+0x4] ;             /* 0x0000040004087381 */
+   LDG.E.CONSTANT.SYS R10, [R4+0x8] ;            /* 0x00000800040a7381 */
+   LDG.E.CONSTANT.SYS R11, [R2+0x4] ;            /* 0x00000400020b7381 */
+   LDG.E.CONSTANT.SYS R13, [R2+0x8] ;            /* 0x00000800020d7381 */
+   FADD R9, R0, R7 ;                             /* 0x0000000700097221 */
+   IMAD.WIDE R6, R6, R15, c[0x0][0x170] ;        /* 0x00005c0006067625 */
+   STG.E.SYS [R6], R9 ;                          /* 0x0000000906007386 */
+   FADD R11, R8, R11 ;                           /* 0x0000000b080b7221 */
+   FADD R13, R10, R13 ;                          /* 0x0000000d0a0d7221 */
+   STG.E.SYS [R6+0x4], R11 ;                     /* 0x0000040b06007386 */
+   STG.E.SYS [R6+0x8], R13 ;                     /* 0x0000080d06007386 */
+   EXIT ;                                        /* 0x000000000000794d */
+   BRA 0x170;                                    /* 0xfffffff000007947 */
+
+Function : _Z6add_f2PK6float2S1_PS_i
+   MOV R1, c[0x0][0x28] ;                        /* 0x00000a0000017a02 */
+   S2R R6, SR_CTAID.X ;                          /* 0x0000000000067919 */
+   S2R R3, SR_TID.X ;                            /* 0x0000000000037919 */
+   IMAD R6, R6, c[0x0][0x0], R3 ;                /* 0x0000000006067a24 */
+   ISETP.GE.AND P0, PT, R6, c[0x0][0x178], PT ;  /* 0x00005e0006007a0c */
+   @P0 EXIT ;                                        /* 0x000000000000094d */
+   MOV R7, 0x8 ;                                 /* 0x0000000800077802 */
+   IMAD.WIDE R2, R6, R7, c[0x0][0x160] ;         /* 0x0000580006027625 */
+   IMAD.WIDE R4, R6, R7, c[0x0][0x168] ;         /* 0x00005a0006047625 */
+   LDG.E.64.CONSTANT.SYS R2, [R2] ;              /* 0x0000000002027381 */
+   LDG.E.64.CONSTANT.SYS R4, [R4] ;              /* 0x0000000004047381 */
+   IMAD.WIDE R6, R6, R7, c[0x0][0x170] ;         /* 0x00005c0006067625 */
+   FADD R9, R3, R5 ;                             /* 0x0000000503097221 */
+   FADD R8, R2, R4 ;                             /* 0x0000000402087221 */
+   STG.E.64.SYS [R6], R8 ;                       /* 0x0000000806007386 */
+   EXIT ;                                        /* 0x000000000000794d */
+   BRA 0x100;                                    /* 0xfffffff000007947 */
+   NOP;                                          /* 0x0000000000007918 */
+   NOP;                                          /* 0x0000000000007918 */
+   NOP;                                          /* 0x0000000000007918 */
+   NOP;                                          /* 0x0000000000007918 */
+   NOP;                                          /* 0x0000000000007918 */
+   NOP;                                          /* 0x0000000000007918 */
+   NOP;                                          /* 0x0000000000007918 */
+
+Function : _Z6add_f1PKfS0_Pfi
+   MOV R1, c[0x0][0x28] ;                        /* 0x00000a0000017a02 */
+   S2R R6, SR_CTAID.X ;                          /* 0x0000000000067919 */
+   S2R R3, SR_TID.X ;                            /* 0x0000000000037919 */
+   IMAD R6, R6, c[0x0][0x0], R3 ;                /* 0x0000000006067a24 */
+   ISETP.GE.AND P0, PT, R6, c[0x0][0x178], PT ;  /* 0x00005e0006007a0c */
+   @P0 EXIT ;                                        /* 0x000000000000094d */
+   MOV R7, 0x4 ;                                 /* 0x0000000400077802 */
+   IMAD.WIDE R4, R6, R7, c[0x0][0x168] ;         /* 0x00005a0006047625 */
+   IMAD.WIDE R2, R6, R7, c[0x0][0x160] ;         /* 0x0000580006027625 */
+   LDG.E.CONSTANT.SYS R4, [R4] ;                 /* 0x0000000004047381 */
+   LDG.E.CONSTANT.SYS R3, [R2] ;                 /* 0x0000000002037381 */
+   IMAD.WIDE R6, R6, R7, c[0x0][0x170] ;         /* 0x00005c0006067625 */
+   FADD R9, R4, R3 ;                             /* 0x0000000304097221 */
+   STG.E.SYS [R6], R9 ;                          /* 0x0000000906007386 */
+   EXIT ;                                        /* 0x000000000000794d */
+   BRA 0xf0;                                     /* 0xfffffff000007947 */
+
+
+=== [2] L2 sector 记账：vecadd_float4 的 33.33% 命中率从哪来 ===
+$ ncu --metrics <lts__*> -k regex:vecadd_float4 --launch-count 1 .\phase0\cuda\vecadd.exe
+
+  vecadd_float4(const float4 *, const float4 *, float4 *, int) (131072, 1, 1)x(128, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__bytes_read.sum                          Mbyte       536.91
+    dram__bytes_write.sum                         Mbyte       268.36
+    lts__t_sector_hit_rate.pct                        %        33.33
+    lts__t_sectors_op_read.sum                   sector   16,794,312
+    lts__t_sectors_op_read_lookup_hit.sum        sector        5,313
+    lts__t_sectors_op_read_lookup_miss.sum       sector   16,781,096
+    lts__t_sectors_op_write.sum                  sector    8,390,349
+    lts__t_sectors_op_write_lookup_hit.sum       sector    8,388,672
+    lts__t_sectors_op_write_lookup_miss.sum      sector            0
+
+=== [3] sectors/请求：每线程字节数 = 理想值 ===
+$ ncu --metrics <l1tex__*> -k regex:vecadd_naive --launch-count 1 .\phase0\cuda\vecadd.exe
+  vecadd_naive(const float *, const float *, float *, int) (262144, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    l1tex__average_t_sectors_per_request_pipe_lsu_mem_global_op_ld.ratio    sector/1            4
+    l1tex__average_t_sectors_per_request_pipe_lsu_mem_global_op_st.ratio    sector/1            4
+    l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum                            sector   16,777,216
+    l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum                            sector    8,388,608
+
+$ ncu --metrics <l1tex__*> -k regex:vecadd_float4 --launch-count 1 .\phase0\cuda\vecadd.exe
+  vecadd_float4(const float4 *, const float4 *, float4 *, int) (131072, 1, 1)x(128, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    l1tex__average_t_sectors_per_request_pipe_lsu_mem_global_op_ld.ratio    sector/1           16
+    l1tex__average_t_sectors_per_request_pipe_lsu_mem_global_op_st.ratio    sector/1           16
+    l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum                            sector   16,777,216
+    l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum                            sector    8,388,608
+
+=== [4] float3（每线程 12 B）：指令 3 倍，但 DRAM 搬运量不变 ===
+$ ncu --metrics <l1tex__*,dram__*> -k regex:add_f3 --launch-count 1 .\phase0\cuda\membound_sweep.exe
+  add_f3(const float3 *, const float3 *, float3 *, int) (81920, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__bytes_read.sum                                                       Mbyte       503.34
+    dram__bytes_write.sum                                                      Mbyte       251.68
+    l1tex__average_t_sectors_per_request_pipe_lsu_mem_global_op_ld.ratio    sector/1           12
+    l1tex__t_sector_hit_rate.pct                                                   %        66.65
+    l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum                            sector   47,185,920
+    l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum                            sector   23,592,960
+
+=== [5] 请求数 4 倍，带宽为什么还能打满（float vs float4） ===
+$ ncu --metrics <l1tex__*,dram__*,gpu__time_duration> -k regex:vecadd_naive|vecadd_float4 --launch-count 1 .\phase0\cuda\vecadd.exe
+
+  vecadd_naive(const float *, const float *, float *, int) (262144, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed                             %        93.23
+    gpu__time_duration.sum                                                        ms         4.50
+    l1tex__average_t_sectors_per_request_pipe_lsu_mem_global_op_ld.ratio    sector/1            4
+    l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum                                     4,194,304
+    l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum                            sector   16,777,216
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed                            %        26.31
+  vecadd_float4(const float4 *, const float4 *, float4 *, int) (131072, 1, 1)x(128, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed                             %        93.65
+    gpu__time_duration.sum                                                        ms         4.48
+    l1tex__average_t_sectors_per_request_pipe_lsu_mem_global_op_ld.ratio    sector/1           16
+    l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum                                     1,048,576
+    l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum                            sector   16,777,216
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed                            %        26.36

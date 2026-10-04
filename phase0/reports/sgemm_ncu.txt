@@ -1,0 +1,221 @@
+﻿# sgemm 原始输出
+# 采集于 2026-10-03 · NVIDIA T600 Laptop GPU (sm_75) · CUDA 12.6 · Nsight Compute 2024.3.1
+# 配套解读：phase0/reports/sgemm_qa.md
+# 命令均从仓库根目录执行
+
+=== [1] 独立运行（时间以此为准） ===
+$ .\phase0\cuda\sgemm.exe
+
+sgemm N=1024  (working set 12 MB, L2 is only 1 MB)
+--------------------------------------------------
+  version                    ms      GFLOP/s    pct of peak
+  naive                  11.131        192.9           7.0%
+  tiled(32x32)            7.695        279.1          10.1%
+  speedup          1.45x
+  tiled+reg(4x4)          3.767        570.0          20.7%
+  speedup vs naive 2.95x
+
+correctness
+-----------
+  tiled vs naive : 1048576 elements, mismatches 0, max diff 0.000e+00 -> PASS
+  reg   vs naive : 1048576 elements, mismatches 0, max diff 0.000e+00 -> PASS
+
+=== [2] ncu 逐版：瓶颈在哪一级 ===
+$ ncu --metrics <dram__*,lts__*,l1tex__*,sm__*,gpu__*> -k regex:<kernel> --launch-skip 3 --launch-count 1 .\phase0\cuda\sgemm.exe
+
+--- sgemm_naive ---
+  sgemm_naive(const float *, const float *, float *, int) (32, 32, 1)x(32, 32, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__bytes_read.sum                                      Mbyte       171.60
+    dram__bytes_write.sum                                     Mbyte        38.90
+    dram__throughput.avg.pct_of_peak_sustained_elapsed            %        12.10
+    gpu__time_duration.sum                                       ms        10.74
+    l1tex__t_sector_hit_rate.pct                                  %        94.92
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed           %        80.11
+    lts__t_sector_hit_rate.pct                                    %        48.85
+    sm__throughput.avg.pct_of_peak_sustained_elapsed              %        80.08
+    sm__warps_active.avg.pct_of_peak_sustained_active             %        99.55
+
+--- sgemm_tiled ---
+  sgemm_tiled(const float *, const float *, float *, int) (32, 32, 1)x(32, 32, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__bytes_read.sum                                      Mbyte       178.25
+    dram__bytes_write.sum                                     Mbyte        44.11
+    dram__throughput.avg.pct_of_peak_sustained_elapsed            %        16.74
+    gpu__time_duration.sum                                       ms         9.78
+    l1tex__t_sector_hit_rate.pct                                  %            0
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed           %        85.41
+    lts__t_sector_hit_rate.pct                                    %        64.89
+    sm__throughput.avg.pct_of_peak_sustained_elapsed              %        72.03
+    sm__warps_active.avg.pct_of_peak_sustained_active             %        98.65
+
+--- sgemm_reg ---
+  sgemm_reg(const float *, const float *, float *, int) (16, 16, 1)x(16, 16, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__bytes_read.sum                                      Mbyte        91.65
+    dram__bytes_write.sum                                     Mbyte        31.82
+    dram__throughput.avg.pct_of_peak_sustained_elapsed            %        17.28
+    gpu__time_duration.sum                                       ms         5.16
+    l1tex__t_sector_hit_rate.pct                                  %        77.02
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed           %        77.21
+    lts__t_sector_hit_rate.pct                                    %        69.96
+    sm__throughput.avg.pct_of_peak_sustained_elapsed              %        22.03
+    sm__warps_active.avg.pct_of_peak_sustained_active             %        96.43
+
+=== [3] 流水线级：sm__throughput 展开成 lsu / fma / alu ===
+$ ncu --metrics sm__inst_executed_pipe_{fma,lsu,alu}.avg.pct_of_peak_sustained_active ...
+  sgemm_naive(const float *, const float *, float *, int) (32, 32, 1)x(32, 32, 1), Context 1, Stream 7, Device 0, CC 7.5
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed                   %        84.20
+    sm__inst_executed_pipe_alu.avg.pct_of_peak_sustained_active           %        15.31
+    sm__inst_executed_pipe_fma.avg.pct_of_peak_sustained_active           %        21.94
+    sm__inst_executed_pipe_lsu.avg.pct_of_peak_sustained_active           %        87.52
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                      %        84.17
+  sgemm_tiled(const float *, const float *, float *, int) (32, 32, 1)x(32, 32, 1), Context 1, Stream 7, Device 0, CC 7.5
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed                   %        83.20
+    sm__inst_executed_pipe_alu.avg.pct_of_peak_sustained_active           %         3.59
+    sm__inst_executed_pipe_fma.avg.pct_of_peak_sustained_active           %        14.09
+    sm__inst_executed_pipe_lsu.avg.pct_of_peak_sustained_active           %        72.96
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                      %        70.17
+  sgemm_reg(const float *, const float *, float *, int) (16, 16, 1)x(16, 16, 1), Context 1, Stream 7, Device 0, CC 7.5
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed                   %        95.58
+    sm__inst_executed_pipe_alu.avg.pct_of_peak_sustained_active           %         4.16
+    sm__inst_executed_pipe_fma.avg.pct_of_peak_sustained_active           %        28.42
+    sm__inst_executed_pipe_lsu.avg.pct_of_peak_sustained_active           %        20.17
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                      %        27.28
+
+=== [4] 五路吞吐 + 管道级（九指标同源，用于不可比的提醒） ===
+$ ncu --metrics <dram,lts,lts_hit,l1tex,sm,pipe_lsu,pipe_fma,warps_active,gpu_time> -k regex:<kernel> --launch-skip 3 --launch-count 1 .\phase0\cuda\sgemm.exe
+  sgemm_naive(const float *, const float *, float *, int) (32, 32, 1)x(32, 32, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed                    %         9.01
+    gpu__time_duration.sum                                               ms        11.17
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed                   %        79.82
+    lts__t_sector_hit_rate.pct                                            %        67.49
+    lts__throughput.avg.pct_of_peak_sustained_elapsed                     %        10.72
+    sm__inst_executed_pipe_fma.avg.pct_of_peak_sustained_active           %        21.87
+    sm__inst_executed_pipe_lsu.avg.pct_of_peak_sustained_active           %        87.24
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                      %        79.79
+    sm__warps_active.avg.pct_of_peak_sustained_active                     %        97.58
+  sgemm_tiled(const float *, const float *, float *, int) (32, 32, 1)x(32, 32, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed                    %        14.08
+    gpu__time_duration.sum                                               ms        10.24
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed                   %        79.68
+    lts__t_sector_hit_rate.pct                                            %        57.22
+    lts__throughput.avg.pct_of_peak_sustained_elapsed                     %        13.48
+    sm__inst_executed_pipe_fma.avg.pct_of_peak_sustained_active           %        14.12
+    sm__inst_executed_pipe_lsu.avg.pct_of_peak_sustained_active           %        73.12
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                      %        67.21
+    sm__warps_active.avg.pct_of_peak_sustained_active                     %       101.63
+  sgemm_reg(const float *, const float *, float *, int) (16, 16, 1)x(16, 16, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed                    %        22.33
+    gpu__time_duration.sum                                               ms         3.53
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed                   %        95.55
+    lts__t_sector_hit_rate.pct                                            %        35.74
+    lts__throughput.avg.pct_of_peak_sustained_elapsed                     %        20.84
+    sm__inst_executed_pipe_fma.avg.pct_of_peak_sustained_active           %        28.43
+    sm__inst_executed_pipe_lsu.avg.pct_of_peak_sustained_active           %        20.18
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                      %        27.28
+    sm__warps_active.avg.pct_of_peak_sustained_active                     %        96.25
+
+=== [5] 官方规则引擎的结论（ncu --set full 的 INF/OPT/WRN） ===
+$ ncu --set full -k regex:&lt;kernel&gt; --launch-skip 3 --launch-count 1 .\phase0\cuda\sgemm.exe
+
+--- sgemm_naive ---
+INF   The kernel is utilizing greater than 80.0% of the available compute or memory performance of the device. To
+      further improve performance, work will likely need to be shifted from the most utilized to another unit.
+      Start by analyzing workloads in the Compute Workload Analysis section.
+INF   The ratio of peak float (fp32) to double (fp64) performance on this device is 32:1. The kernel achieved 10%
+      of this device's fp32 peak performance and 0% of its fp64 peak performance. See the Kernel Profiling Guide
+      (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#roofline) for more details on roofline
+INF   FMA is the highest-utilized pipeline (21.9%) based on active cycles, taking into account the rates of its
+      different instructions. It executes 32-bit floating point (FADD, FMUL, FMAD, ...) and integer (IMUL, IMAD)
+      operations. It is well-utilized, but should not be a bottleneck.
+WRN   The optional metric lts__average_gcomp_input_sector_success_rate.pct could not be found. Collecting it as an
+      additional metric could enable the rule to provide more guidance.
+      
+OPT   Est. Speedup: 14.23%
+      The memory access pattern for global loads from L1TEX might not be optimal. On average, only 26.4 of the 32
+      bytes transmitted per sector are utilized by each thread. This could possibly be caused by a stride between
+OPT   Est. Local Speedup: 18.74%
+      Every scheduler is capable of issuing one instruction per cycle, but for this kernel each scheduler only
+      issues an instruction every 3.3 cycles. This might leave hardware resources underutilized and may lead to
+OPT   Est. Speedup: 18.74%
+      On average, each warp of this kernel spends 19.6 cycles being stalled waiting for the L1 instruction queue
+      for local and global (LG) memory operations to be not full. Typically, this stall occurs only when executing
+INF   Check the Warp Stall Sampling (All Samples) table for the top stall locations in your source based on
+      sampling data. The Kernel Profiling Guide
+      (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#metrics-reference) provides more details
+
+--- sgemm_reg ---
+OPT   This kernel exhibits low compute throughput and memory bandwidth utilization relative to the peak performance
+      of this device. Achieved compute throughput and/or memory bandwidth below 60.0% of peak typically indicate
+      latency issues. Look at Scheduler Statistics and Warp State Statistics for potential reasons.
+INF   The ratio of peak float (fp32) to double (fp64) performance on this device is 32:1. The kernel achieved 26%
+      of this device's fp32 peak performance and 0% of its fp64 peak performance. See the Kernel Profiling Guide
+      (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#roofline) for more details on roofline
+INF   FMA is the highest-utilized pipeline (28.4%) based on active cycles, taking into account the rates of its
+      different instructions. It executes 32-bit floating point (FADD, FMUL, FMAD, ...) and integer (IMUL, IMAD)
+      operations. It is well-utilized, but should not be a bottleneck.
+WRN   The optional metric lts__average_gcomp_input_sector_success_rate.pct could not be found. Collecting it as an
+      additional metric could enable the rule to provide more guidance.
+      
+OPT   Est. Speedup: 74.59%
+      The memory access pattern for global loads from L1TEX might not be optimal. On average, only 7.1 of the 32
+      bytes transmitted per sector are utilized by each thread. This could possibly be caused by a stride between
+OPT   Est. Speedup: 71.93%
+      The memory access pattern for global stores to L1TEX might not be optimal. On average, only 8.0 of the 32
+      bytes transmitted per sector are utilized by each thread. This could possibly be caused by a stride between
+OPT   Est. Local Speedup: 52.05%
+      Every scheduler is capable of issuing one instruction per cycle, but for this kernel each scheduler only
+      issues an instruction every 5.3 cycles. This might leave hardware resources underutilized and may lead to
+OPT   Est. Speedup: 48.96%
+      On average, each warp of this kernel spends 19.5 cycles being stalled waiting for the MIO (memory
+      input/output) instruction queue to be not full. This stall reason is high in cases of extreme utilization of
+INF   Check the Warp Stall Sampling (All Samples) table for the top stall locations in your source based on
+      sampling data. The Kernel Profiling Guide
+      (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#metrics-reference) provides more details
+OPT   Est. Speedup: 68.79%
+      This kernel has uncoalesced global accesses resulting in a total of 15073280 excessive sectors (78% of the
+      total 19398656 sectors). Check the L2 Theoretical Sectors Global Excessive table for the primary source
+information on reducing uncoalesced device memory accesses.
+      
+
+=== [6] v3（sgemm_reg2）：按官方 rules 修访存 + 向量化 ===
+$ ncu --metrics <dram,lts,l1tex,l1tex_hit,sm,pipe_fma,warps_active,gpu_time> -k regex:sgemm_reg2 --launch-skip 3 --launch-count 1 .\phase0\cuda\sgemm.exe
+  sgemm_reg2(const float *, const float *, float *, int) (16, 16, 1)x(16, 16, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed                    %        21.96
+    gpu__time_duration.sum                                               ms         1.82
+    l1tex__t_sector_hit_rate.pct                                          %         0.43
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed                   %        90.01
+    lts__throughput.avg.pct_of_peak_sustained_elapsed                     %        23.35
+    sm__pipe_fma_cycles_active.avg.pct_of_peak_sustained_active           %        54.39
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                      %        49.86
+    sm__warps_active.avg.pct_of_peak_sustained_active                     %        71.98
+
+--- 官方 rules（v3 之后） ---
+OPT   This kernel exhibits low compute throughput and memory bandwidth utilization relative to the peak performance
+      of this device. Achieved compute throughput and/or memory bandwidth below 60.0% of peak typically indicate
+      latency issues. Look at Scheduler Statistics and Warp State Statistics for potential reasons.
+INF   The ratio of peak float (fp32) to double (fp64) performance on this device is 32:1. The kernel achieved 50%
+      of this device's fp32 peak performance and 0% of its fp64 peak performance. See the Kernel Profiling Guide
+      (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#roofline) for more details on roofline
+INF   FMA is the highest-utilized pipeline (54.4%) based on active cycles, taking into account the rates of its
+      different instructions. It executes 32-bit floating point (FADD, FMUL, FMAD, ...) and integer (IMUL, IMAD)
+      operations. It is well-utilized, but should not be a bottleneck.
+WRN   The optional metric lts__average_gcomp_input_sector_success_rate.pct could not be found. Collecting it as an
+      additional metric could enable the rule to provide more guidance.
+      
+OPT   Est. Speedup: 31.57%
+      The memory access pattern for shared stores might not be optimal and causes on average a 1.5 - way bank
+      conflict across all 1048576 shared store requests.This results in 524288 bank conflicts,  which represent
+OPT   Est. Local Speedup: 47.53%
+      Every scheduler is capable of issuing one instruction per cycle, but for this kernel each scheduler only
+      issues an instruction every 2.7 cycles. This might leave hardware resources underutilized and may lead to
+OPT   Est. Speedup: 44.62%
+      On average, each warp of this kernel spends 7.1 cycles being stalled waiting for the MIO (memory
+      input/output) instruction queue to be not full. This stall reason is high in cases of extreme utilization of
+INF   Check the Warp Stall Sampling (All Samples) table for the top stall locations in your source based on
+      sampling data. The Kernel Profiling Guide
+      (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#metrics-reference) provides more details
+OPT   Est. Speedup: 25%
+      The 6.00 theoretical warps per scheduler this kernel can issue according to its occupancy are below the
+      hardware maximum of 8. This kernel's theoretical occupancy (75.0%) is limited by the number of required
+OPT   Est. Speedup: 3.573%
+      This kernel has uncoalesced shared accesses resulting in a total of 524288 excessive wavefronts (4% of the
+      total 14155776 wavefronts). Check the L1 Wavefronts Shared Excessive table for the primary source locations.

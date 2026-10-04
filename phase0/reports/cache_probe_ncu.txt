@@ -1,0 +1,292 @@
+﻿# cache_probe 原始输出
+# 采集于 2026-10-03 · NVIDIA T600 Laptop GPU (sm_75) · CUDA 12.6 · Nsight Compute 2024.3.1
+# 配套解读：phase0/reports/cache_reuse_qa.md
+# 命令均从仓库根目录执行
+
+=== [1] 独立运行（无 profiler 干扰；JSON 用的就是这次的时间） ===
+$ .\phase0\cuda\cache_probe.exe
+
+EXP1  data size x fixed logical work (33.5M re-reads)
+-----------------------------------------------------
+  size         floats    iters         ms  GB/s(logical)    DRAM fit?
+  64KB          16384     2048      1.168          229.8   yes(192KB)
+  256KB         65536      512      1.006          266.8   yes(192KB)
+  1MB          262144      128      0.927          289.6           no
+  64MB       16777216        2      1.286          208.8           no
+
+EXP2  one launch with inner loop  vs  K launches
+------------------------------------------------
+  1 次启动 + 内部循环 2048 轮 :      1.185 ms
+  2048 次启动, 每次 1 轮      :     26.270 ms
+  每次启动的额外开销          :     12.248 us
+
+已写入 phase0/measured/cache_probe.json
+
+=== [2] ncu 逐档采数（case 0..3 = 64KB / 256KB / 1MB / 64MB） ===
+$ ncu --metrics <dram__*,l1tex__*,lts__*,sm__*> -k regex:add_reread --launch-skip 5 --launch-count 1 .\phase0\cuda\cache_probe.exe <case>
+
+--- case 0 ---
+  add_reread(const volatile float *, const volatile float *, float *, int, int) (64, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__bytes_read.sum                                     Kbyte       136.19
+    dram__bytes_write.sum                                    Kbyte        56.64
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %         0.08
+    gpu__time_duration.sum                                      ms         1.20
+    l1tex__t_sector_hit_rate.pct                                 %            0
+    lts__t_sector_hit_rate.pct                                   %        99.96
+    sm__sass_thread_inst_executed_op_fadd_pred_on.sum         inst   67,108,864
+    sm__sass_thread_inst_executed_op_ffma_pred_on.sum         inst            0
+    sm__throughput.avg.pct_of_peak_sustained_elapsed             %        19.15
+
+--- case 1 ---
+  add_reread(const volatile float *, const volatile float *, float *, int, int) (256, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__bytes_read.sum                                     Kbyte       526.98
+    dram__bytes_write.sum                                    Kbyte       262.94
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %         0.43
+    gpu__time_duration.sum                                      us       954.43
+    l1tex__t_sector_hit_rate.pct                                 %            0
+    lts__t_sector_hit_rate.pct                                   %        99.80
+    sm__sass_thread_inst_executed_op_fadd_pred_on.sum         inst   67,108,864
+    sm__sass_thread_inst_executed_op_ffma_pred_on.sum         inst            0
+    sm__throughput.avg.pct_of_peak_sustained_elapsed             %        23.70
+
+--- case 2 ---
+  add_reread(const volatile float *, const volatile float *, float *, int, int) (1024, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__bytes_read.sum                                     Mbyte         2.11
+    dram__bytes_write.sum                                    Mbyte         1.17
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %         1.84
+    gpu__time_duration.sum                                      us       928.54
+    l1tex__t_sector_hit_rate.pct                                 %            0
+    lts__t_sector_hit_rate.pct                                   %        99.22
+    sm__sass_thread_inst_executed_op_fadd_pred_on.sum         inst   67,108,864
+    sm__sass_thread_inst_executed_op_ffma_pred_on.sum         inst            0
+    sm__throughput.avg.pct_of_peak_sustained_elapsed             %        24.70
+
+--- case 3 ---
+  add_reread(const volatile float *, const volatile float *, float *, int, int) (65536, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__bytes_read.sum                                     Mbyte       134.22
+    dram__bytes_write.sum                                    Mbyte        67.22
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %        81.06
+    gpu__time_duration.sum                                      ms         1.29
+    l1tex__t_sector_hit_rate.pct                                 %            0
+    lts__t_sector_hit_rate.pct                                   %        60.00
+    sm__sass_thread_inst_executed_op_fadd_pred_on.sum         inst   67,108,864
+    sm__sass_thread_inst_executed_op_ffma_pred_on.sum         inst            0
+    sm__throughput.avg.pct_of_peak_sustained_elapsed             %        26.31
+
+=== [3] ncu 官方 roofline section（case 3 = 64MB） ===
+$ ncu --section SpeedOfLight_RooflineChart --print-details all -k regex:add_reread --launch-skip 5 --launch-count 1 .\phase0\cuda\cache_probe.exe 3
+  add_reread(const volatile float *, const volatile float *, float *, int, int) (65536, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    Section: GPU Speed Of Light Roofline Chart
+    ----------------------------------------------------------- ----------- ------------
+    Metric Name                                                 Metric Unit Metric Value
+    ----------------------------------------------------------- ----------- ------------
+    Theoretical Predicated-On DFMA Thread Instructions Executed  inst/cycle           28
+    Theoretical Predicated-On FFMA Thread Instructions Executed  inst/cycle          896
+    Predicated-On DFMA Thread Instructions Executed Per Cycle    inst/cycle            0
+    Predicated-On FFMA Thread Instructions Executed Per Cycle    inst/cycle            0
+    ----------------------------------------------------------- ----------- ------------
+
+    GPU Throughput Rooflines
+    Table Name : Floating Point Operations Roofline
+    Single Precision Roofline
+    Peak Work
+    ----------------------------------------- ----------- ------------
+    Metric Name                               Metric Unit Metric Value
+    ----------------------------------------- ----------- ------------
+    Theoretical Predicated-On FFMA Operations        inst        1,792
+    SM Frequency                                      Ghz         1.32
+    ----------------------------------------- ----------- ------------
+
+    Peak Traffic
+    --------------------------------- ----------- ------------
+    Metric Name                       Metric Unit Metric Value
+    --------------------------------- ----------- ------------
+    Theoretical DRAM Bytes Accessible  byte/cycle           32
+    DRAM Frequency                            Ghz         5.98
+    --------------------------------- ----------- ------------
+
+    Double Precision Roofline
+    Peak Work
+    ----------------------------------------- ----------- ------------
+    Metric Name                               Metric Unit Metric Value
+    ----------------------------------------- ----------- ------------
+    Theoretical Predicated-On DFMA Operations        inst           56
+    SM Frequency                                      Ghz         1.32
+    ----------------------------------------- ----------- ------------
+
+    Peak Traffic
+    --------------------------------- ----------- ------------
+    Metric Name                       Metric Unit Metric Value
+    --------------------------------- ----------- ------------
+    Theoretical DRAM Bytes Accessible  byte/cycle           32
+    DRAM Frequency                            Ghz         5.98
+    --------------------------------- ----------- ------------
+
+    Single Precision Achieved Value
+    Achieved Work
+    --------------------------------------------------------- ----------- ------------
+    Metric Name                                               Metric Unit Metric Value
+    --------------------------------------------------------- ----------- ------------
+    Predicated-On FFMA Operations Per Cycle                          inst            0
+    SM Frequency                                                      Ghz         1.32
+    Predicated-On FADD Thread Instructions Executed Per Cycle  inst/cycle        39.26
+    Predicated-On FMUL Thread Instructions Executed Per Cycle  inst/cycle            0
+    --------------------------------------------------------- ----------- ------------
+
+    Achieved Traffic
+    -------------- ----------- ------------
+    Metric Name    Metric Unit Metric Value
+    -------------- ----------- ------------
+    DRAM Bandwidth     Gbyte/s       155.48
+    -------------- ----------- ------------
+
+    Double Precision Achieved Value
+    Achieved Work
+    --------------------------------------------------------- ----------- ------------
+    Metric Name                                               Metric Unit Metric Value
+    --------------------------------------------------------- ----------- ------------
+    Predicated-On DFMA Operations Per Cycle                          inst            0
+    SM Frequency                                                      Ghz         1.32
+    Predicated-On DADD Thread Instructions Executed Per Cycle  inst/cycle            0
+    Predicated-On DMUL Thread Instructions Executed Per Cycle  inst/cycle            0
+    --------------------------------------------------------- ----------- ------------
+
+    Achieved Traffic
+    -------------- ----------- ------------
+    Metric Name    Metric Unit Metric Value
+    -------------- ----------- ------------
+    DRAM Bandwidth     Gbyte/s       155.48
+    -------------- ----------- ------------
+
+    INF   The ratio of peak float (fp32) to double (fp64) performance on this device is 32:1. The kernel achieved 2% of 
+          this device's fp32 peak performance and 0% of its fp64 peak performance. See the Kernel Profiling Guide       
+          (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#roofline) for more details on roofline      
+          analysis.                                                                                                     
+
+
+=== [4] block size 扫描（1MB 档，工作集 3MB > 1MB L2） ===
+$ .\phase0\cuda\cache_probe.exe bs
+
+EXP3  block size sweep (1MB arrays, iters=128)
+----------------------------------------------
+  block          grid         ms  GB/s(logical)
+  256            1024      0.931          288.4
+  512             512      0.917          292.9
+  1024            256      0.917          292.7
+  192            1366      0.944          284.3
+  768             342      0.925          290.3
+
+$ ncu --metrics <lts__*,sm__*,launch__*> -k regex:add_reread --launch-skip 5 --launch-count 1 .\phase0\cuda\cache_probe.exe bs <block>
+
+--- block 256 ---
+  add_reread(const volatile float *, const volatile float *, float *, int, int) (1024, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    gpu__time_duration.sum                                           us       924.99
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed               %        49.12
+    launch__registers_per_thread                        register/thread           16
+    lts__t_sector_hit_rate.pct                                        %        99.22
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                  %        24.75
+    sm__warps_active.avg.pct_of_peak_sustained_active                 %        99.59
+
+--- block 512 ---
+  add_reread(const volatile float *, const volatile float *, float *, int, int) (512, 1, 1)x(512, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    gpu__time_duration.sum                                           us       916.35
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed               %        49.95
+    launch__registers_per_thread                        register/thread           16
+    lts__t_sector_hit_rate.pct                                        %        99.20
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                  %        25.17
+    sm__warps_active.avg.pct_of_peak_sustained_active                 %        99.51
+
+--- block 1024 ---
+  add_reread(const volatile float *, const volatile float *, float *, int, int) (256, 1, 1)x(1024, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    gpu__time_duration.sum                                           us       912.45
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed               %        49.42
+    launch__registers_per_thread                        register/thread           16
+    lts__t_sector_hit_rate.pct                                        %        99.20
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                  %        24.90
+    sm__warps_active.avg.pct_of_peak_sustained_active                 %        99.60
+
+--- block 192 ---
+  add_reread(const volatile float *, const volatile float *, float *, int, int) (1366, 1, 1)x(192, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    gpu__time_duration.sum                                           us       949.70
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed               %        48.22
+    launch__registers_per_thread                        register/thread           16
+    lts__t_sector_hit_rate.pct                                        %        99.22
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                  %        24.30
+    sm__warps_active.avg.pct_of_peak_sustained_active                 %        93.20
+
+--- block 768 ---
+  add_reread(const volatile float *, const volatile float *, float *, int, int) (342, 1, 1)x(768, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    gpu__time_duration.sum                                           us       919.55
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed               %        49.23
+    launch__registers_per_thread                        register/thread           16
+    lts__t_sector_hit_rate.pct                                        %        99.22
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                  %        24.81
+    sm__warps_active.avg.pct_of_peak_sustained_active                 %        74.55
+
+=== [5] 复用距离 vs L2 容量（k = 每线程处理几个元素） ===
+$ .\phase0\cuda\cache_probe.exe k
+
+EXP4  reuse distance vs L2 capacity (1 MB)
+------------------------------------------
+  block   k             ms     reuse-dist    GB/s(log)   resident
+  256     2          0.070         224 KB        209.0      14336
+  256     4          0.130         448 KB        225.4      14336
+  256     8          0.225         896 KB        261.0      14336
+  256     12         0.486        1344 KB        181.2      14336
+  256     16         0.663        1792 KB        177.2      14336
+  768     2          0.069         168 KB        217.8      10752
+  768     4          0.133         336 KB        224.0      10752
+  768     8          0.279         672 KB        214.2      10752
+  768     12         0.493        1008 KB        182.0      10752
+  768     16         0.761        1344 KB        157.1      10752
+
+$ ncu --metrics <lts__*,sm__*,gpu__,dram__*> -k regex:add_reread_k --launch-skip 5 --launch-count 1 .\phase0\cuda\cache_probe.exe k <k> <block>
+
+--- k=2 block=256 ---
+  add_reread_k(const volatile float *, const volatile float *, float *, int, int, int, int) (56, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %         2.02
+    gpu__time_duration.sum                                      us        59.78
+    lts__t_sector_hit_rate.pct                                   %        98.43
+    sm__warps_active.avg.pct_of_peak_sustained_active            %        99.11
+
+--- k=8 block=256 ---
+  add_reread_k(const volatile float *, const volatile float *, float *, int, int, int, int) (56, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %         2.14
+    gpu__time_duration.sum                                      us       228.10
+    lts__t_sector_hit_rate.pct                                   %        97.43
+    sm__warps_active.avg.pct_of_peak_sustained_active            %        99.18
+
+--- k=12 block=256 ---
+  add_reread_k(const volatile float *, const volatile float *, float *, int, int, int, int) (56, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %        93.04
+    gpu__time_duration.sum                                      us       490.34
+    lts__t_sector_hit_rate.pct                                   %         0.95
+    sm__warps_active.avg.pct_of_peak_sustained_active            %        98.99
+
+--- k=16 block=256 ---
+  add_reread_k(const volatile float *, const volatile float *, float *, int, int, int, int) (56, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %        92.08
+    gpu__time_duration.sum                                      us       662.21
+    lts__t_sector_hit_rate.pct                                   %         0.48
+    sm__warps_active.avg.pct_of_peak_sustained_active            %        98.87
+
+--- k=8 block=768 ---
+  add_reread_k(const volatile float *, const volatile float *, float *, int, int, int, int) (19, 1, 1)x(768, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %         1.92
+    gpu__time_duration.sum                                      us       268.32
+    lts__t_sector_hit_rate.pct                                   %        98.17
+    sm__warps_active.avg.pct_of_peak_sustained_active            %        74.74
+
+--- k=12 block=768 ---
+  add_reread_k(const volatile float *, const volatile float *, float *, int, int, int, int) (19, 1, 1)x(768, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %        25.52
+    gpu__time_duration.sum                                      us       474.18
+    lts__t_sector_hit_rate.pct                                   %        71.41
+    sm__warps_active.avg.pct_of_peak_sustained_active            %        74.69
+
+--- k=16 block=768 ---
+  add_reread_k(const volatile float *, const volatile float *, float *, int, int, int, int) (19, 1, 1)x(768, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed           %        55.52
+    gpu__time_duration.sum                                      us       759.84
+    lts__t_sector_hit_rate.pct                                   %        32.32
+    sm__warps_active.avg.pct_of_peak_sustained_active            %        74.64

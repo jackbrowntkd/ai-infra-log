@@ -1,0 +1,61 @@
+{
+  "device": {
+    "name": "NVIDIA T600 Laptop GPU",
+    "compute_capability": "7.5",
+    "sm_count": 14,
+    "cuda_cores": 896,
+    "total_mem_GB": 4.29,
+    "l2_MB": 1.05,
+    "torch": "2.6.0+cu124",
+    "cuda": "12.4"
+  },
+  "bandwidth": {
+    "copy_gbps": 172.2,
+    "read_gbps": 179.0,
+    "write_gbps": 185.4,
+    "ms": {
+      "copy": 3.117,
+      "read": 1.499,
+      "write": 1.448
+    }
+  },
+  "matmul": {
+    "fp32": {
+      "n": 2048,
+      "ms": 6.218,
+      "tflops": 2.76
+    },
+    "fp32_tf32": {
+      "n": 2048,
+      "ms": 6.251,
+      "tflops": 2.75
+    },
+    "fp16": {
+      "n": 2048,
+      "ms": 54.174,
+      "tflops": 0.32
+    },
+    "bf16": {
+      "n": 2048,
+      "ms": 10.61,
+      "tflops": 1.62
+    }
+  },
+  "has_tensor_core": false,
+  "sustained": {
+    "burst_tflops": 2.99,
+    "sustained_tflops": 2.77,
+    "clock_idle_mhz": 1800.0,
+    "clock_burst_mhz": 1800.0,
+    "clock_sustained_mhz": 1800.0,
+    "iterations": 1064,
+    "elapsed_s": 6.61
+  },
+  "ridge_point": {
+    "fp32": 15.42
+  },
+  "cache": {
+    "l2_gbps": 289.0,
+    "note": "L2 服务速率上界：cache_probe 实测的最好值（reports/cache_reuse_qa.md），非官方峰值；roofline.py 的第二个面板用它当屋顶"
+  }
+}

@@ -1,0 +1,66 @@
+﻿# latency_probe 原始输出
+# 采集于 2026-10-03 · NVIDIA T600 Laptop GPU (sm_75) · CUDA 12.6 · Nsight Compute 2024.3.1
+# 配套解读：phase0/reports/membound_qa.md 「并行度下限往下压」
+# 命令均从仓库根目录执行
+
+=== [1] 独立运行（时间以此为准） ===
+$ .\phase0\cuda\latency_probe.exe
+
+EXP1  grid sweep, 每线程 1 笔在途请求 (240 MB 纯读)
+-------------------------------------------------------------
+  grid        warps 在途(估算)           ms       GB/s
+  1               8           4 KB        6.880       36.6
+  2              16           8 KB        3.319       75.8
+  4              32          16 KB        1.836      137.0
+  7              56          28 KB        1.380      182.3
+  14            112          56 KB        1.345      187.1
+  28            224         112 KB        1.342      187.5
+  56            448         224 KB        1.386      181.5
+  112           896         448 KB        1.401      179.7
+
+EXP2  同上，但每线程 4 笔独立请求 (ILP=4)
+-----------------------------------------------------
+  grid        warps 在途(估算)           ms       GB/s
+  1               8          16 KB        6.169       40.8
+  2              16          32 KB        3.014       83.5
+  4              32          64 KB        1.749      143.9
+  7              56         112 KB        1.364      184.4
+  14            112         224 KB        1.343      187.4
+  28            224         448 KB        1.341      187.7
+  56            448         896 KB        1.387      181.5
+  112           896        1792 KB        1.398      180.0
+
+=== [2] ncu 逐档：DRAM/SM/L1 利用率与占用率 ===
+$ ncu --metrics <dram__*,sm__*,l1tex__*,gpu__*> -k regex:read_gs --launch-skip <N> --launch-count 1 .\phase0\cuda\latency_probe.exe
+
+--- read_gs grid=1 ---
+  read_gs(const float4 *, float *, int) (1, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed            %        19.16
+    gpu__time_duration.sum                                       ms         6.85
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed           %         6.12
+    sm__throughput.avg.pct_of_peak_sustained_elapsed              %         0.96
+    sm__warps_active.avg.pct_of_peak_sustained_active             %        24.99
+
+--- read_gs grid=2 ---
+  read_gs(const float4 *, float *, int) (2, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed            %        36.42
+    gpu__time_duration.sum                                       ms         3.60
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed           %        12.06
+    sm__throughput.avg.pct_of_peak_sustained_elapsed              %         1.89
+    sm__warps_active.avg.pct_of_peak_sustained_active             %        24.99
+
+--- read_gs grid=4 ---
+  read_gs(const float4 *, float *, int) (4, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed            %        66.92
+    gpu__time_duration.sum                                       ms         1.96
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed           %        21.91
+    sm__throughput.avg.pct_of_peak_sustained_elapsed              %         3.42
+    sm__warps_active.avg.pct_of_peak_sustained_active             %        24.97
+
+--- read_gs grid=14 ---
+  read_gs(const float4 *, float *, int) (14, 1, 1)x(256, 1, 1), Context 1, Stream 7, Device 0, CC 7.5
+    dram__throughput.avg.pct_of_peak_sustained_elapsed            %        97.65
+    gpu__time_duration.sum                                       ms         1.34
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed           %        31.75
+    sm__throughput.avg.pct_of_peak_sustained_elapsed              %         4.96
+    sm__warps_active.avg.pct_of_peak_sustained_active             %        24.98
